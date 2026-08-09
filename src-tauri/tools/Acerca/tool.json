@@ -1,0 +1,7 @@
+{
+  "name": "Alejo Tools",
+  "icon": "⚙️",
+  "description": "Herramienta de prueba del esqueleto mobile",
+  "input": "acerca",
+  "persistent": false
+}

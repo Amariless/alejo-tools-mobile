@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <title>Alejo Tools</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style id="themes-style"></style>
+</head>
+<body>
+  <div id="app">
+    <header id="app-bar">
+      <span id="app-bar-icon"></span>
+      <div id="app-bar-text">
+        <h1 id="app-bar-title">Alejo Tools</h1>
+        <p id="app-bar-desc"></p>
+      </div>
+    </header>
+
+    <main id="content">
+      <div id="welcome">
+        <span id="welcome-icon">⚙</span>
+        <p>Cargando herramientas…</p>
+      </div>
+      <div id="tool-view" class="hidden">
+        <div id="tool-input-area"></div>
+        <div id="tool-output"></div>
+      </div>
+    </main>
+
+    <nav id="tab-bar"></nav>
+  </div>
+  <style id="tool-style-override"></style>
+  <script type="module" src="/main.js" defer></script>
+</body>
+</html>

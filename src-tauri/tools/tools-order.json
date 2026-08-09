@@ -1,0 +1,8 @@
+{
+  "_readme": "Cambia los números para reordenar. Deja gaps (10, 20, 30...) para insertar herramientas nuevas sin renumerar todo.",
+  "_always_last": "Settings",
+
+  "Acerca":       10,
+  "SyncManager":  20,
+  "DescargarMusica": 30
+}

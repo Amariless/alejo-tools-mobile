@@ -1,0 +1,240 @@
+/* styles.css — shell de Alejo Tools Mobile.
+ *
+ * Layout fijo pensado para teléfono: app-bar arriba, contenido scrolleable
+ * al medio, barra de pestañas abajo (con el "safe area" del gesto/barra de
+ * navegación de Android). Claro/oscuro sigue prefers-color-scheme del
+ * sistema -- no hay selector de tema todavía (eso vive en Settings, que
+ * todavía no se portó).
+ */
+
+:root {
+  --bg:            #f4f4f2;
+  --surface:       #ffffff;
+  --surface-alt:   #ececec;
+  --text:          #16140f;
+  --text-muted:    #6b6558;
+  --border:        #ddd8ce;
+  --accent:        #f0a500;
+  --accent-text:   #16140f;
+  --success:       #2f9e44;
+  --error:         #e03131;
+  --warning:       #f08c00;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:          #0c0b09;
+    --surface:      #17140f;
+    --surface-alt:  #201c14;
+    --text:         #ece6d8;
+    --text-muted:   #948a72;
+    --border:       #2c2618;
+    --accent:       #f0a500;
+    --accent-text:  #0c0b09;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, Inter, Arial, sans-serif;
+  font-size: 15px;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+#app {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── App bar ─────────────────────────────────────────── */
+#app-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+#app-bar-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+#app-bar-text { min-width: 0; }
+#app-bar-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#app-bar-desc {
+  margin: 2px 0 0;
+  font-size: .78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Contenido ───────────────────────────────────────── */
+#content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+}
+
+#welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+#welcome-icon { font-size: 2.4rem; }
+#welcome.hidden { display: none; }
+
+#tool-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+#tool-view.hidden { display: none; }
+
+#tool-input-area {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#tool-output {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 16px 16px;
+  display: flex;
+  flex-direction: column;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: .82rem;
+}
+
+/* ── Barra de pestañas (bottom nav) ──────────────────── */
+#tab-bar {
+  flex: 0 0 auto;
+  display: flex;
+  overflow-x: auto;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.tab-item {
+  flex: 1 0 auto;
+  min-width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 10px 6px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.tab-item-icon { font-size: 1.25rem; }
+.tab-item-name {
+  font-size: .68rem;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab-item.active { color: var(--accent); }
+
+/* ── Controles genéricos usados por las herramientas ─── */
+.input-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.input-label {
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+input, select, textarea, button {
+  font: inherit;
+  color: var(--text);
+}
+
+input, select, textarea {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 12px;
+  background: var(--surface);
+  width: 100%;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+button {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 16px;
+  background: var(--surface-alt);
+  cursor: pointer;
+}
+button:active { opacity: .8; }
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 700;
+}
+button:disabled { opacity: .5; cursor: default; }
+
+/* ── Salida de texto de herramientas ─────────────────── */
+.out-line {
+  display: block;
+  padding: 2px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.out-line.success { color: var(--success); }
+.out-line.error   { color: var(--error); }
+.out-line.warning { color: var(--warning); }
+.out-line.dim     { color: var(--text-muted); }
+.out-separator {
+  border: none;
+  border-top: 1px dashed var(--border);
+  margin: 8px 0;
+}
