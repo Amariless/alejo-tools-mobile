@@ -1,0 +1,7 @@
+{
+  "name": "Alejo Tools",
+  "icon": "⚙️",
+  "description": "Configuración y actualizaciones",
+  "input": "settings",
+  "persistent": false
+}

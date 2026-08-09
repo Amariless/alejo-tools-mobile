@@ -34,4 +34,32 @@ serde_json = "1"
 # que no existe en el teléfono. Sin este feature, el bug de "Sin
 # herramientas todavía" hubiera seguido igual en cualquier build debug.
 rust-embed = { version = "8", features = ["debug-embed"] }
+# SyncManager: cliente HTTP de la API REST local de Syncthing-Android
+# (127.0.0.1:8384, la misma que usa su propia interfaz web) -- no
+# vendorizamos binario propio, ver comentario en syncthing.rs.
+# rustls (no native-tls/openssl): openssl-sys no cross-compila limpio
+# contra el NDK de Android sin vendorizar/linkear OpenSSL a mano; rustls es
+# Rust puro, mismo binario en Windows dev y en el APK sin config extra.
+#
+# NUEVO (confirmado en vivo -- panic real en el emulador): el backend
+# rustls de reqwest, en Android, usa por defecto rustls-platform-verifier
+# (habla con el keystore de Android vía JNI) y ESO requiere inicializarlo a
+# mano pasándole el contexto de Android desde Kotlin/Java ANTES de la
+# primera request -- según el propio README del crate hace falta agregar
+# un componente Kotlin al build.gradle, no alcanza con Cargo.toml. En vez
+# de meternos con Gradle/Kotlin para esto, ver tls.rs: se arma un
+# rustls::ClientConfig a mano con raíces embebidas (webpki-roots, ver más
+# abajo) y se lo pasa a reqwest con use_preconfigured_tls() -- eso evita
+# por completo el camino de rustls-platform-verifier.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+# "aws-lc-rs" (no "ring"): reqwest ya trae aws-lc-sys como su backend
+# criptográfico por defecto (ya cross-compiló bien para aarch64-android en
+# este mismo proyecto) -- usar el mismo acá evita compilar DOS backends de
+# criptografía nativa distintos para lo mismo.
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
+webpki-roots = "1"
+# Auto-actualización (Settings): QR del propio ID de Syncthing, mismo
+# mecanismo que el escritorio (armar el SVG a mano con QrCode::to_colors(),
+# sin el feature "svg" del crate).
+qrcode = { version = "0.14", default-features = false }
 

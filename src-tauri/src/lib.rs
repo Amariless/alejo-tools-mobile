@@ -28,6 +28,10 @@ use std::collections::HashMap;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 
+mod syncthing;
+mod tls;
+mod update;
+
 #[derive(RustEmbed)]
 #[folder = "tools/"]
 struct ToolsAssets;
@@ -143,6 +147,24 @@ pub fn run() {
             get_tool_style,
             get_tool_ui,
             get_themes_css,
+            // SyncManager (cliente de Syncthing-Android)
+            syncthing::sync_get_config,
+            syncthing::sync_set_config,
+            syncthing::sync_status,
+            syncthing::sync_get_folders,
+            syncthing::sync_get_folder_status,
+            syncthing::sync_set_folder_paused,
+            syncthing::sync_rescan_folder,
+            syncthing::sync_pending_folders,
+            syncthing::sync_accept_pending_folder,
+            syncthing::sync_dismiss_pending_folder,
+            syncthing::sync_get_devices,
+            syncthing::sync_connections,
+            syncthing::sync_add_device,
+            syncthing::sync_share_folder,
+            syncthing::sync_my_id_qr,
+            // Auto-actualización por GitHub Releases
+            update::check_for_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

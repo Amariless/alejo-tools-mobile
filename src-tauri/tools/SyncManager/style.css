@@ -1,0 +1,89 @@
+.sm-root {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sm-connect { display: flex; flex-direction: column; gap: 12px; }
+.sm-lead { margin: 0; font-weight: 700; font-size: 1rem; }
+.sm-hint { margin: 0; font-size: .85rem; color: var(--text-muted); line-height: 1.4; }
+.sm-error {
+  margin: 0;
+  font-size: .82rem;
+  color: var(--error);
+}
+.sm-error.hidden { display: none; }
+
+.sm-toolbar { display: flex; gap: 8px; }
+.sm-toolbar button { flex: 1; }
+
+.sm-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sm-status-dot, .sm-device-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex: 0 0 auto;
+}
+.sm-status-dot.ok, .sm-device-dot.ok { background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 25%, transparent); }
+.sm-status-dot.bad { background: var(--error); }
+.sm-status-title, .sm-device-name { font-weight: 700; font-size: .92rem; }
+.sm-status-sub, .sm-device-sub { font-size: .78rem; color: var(--text-muted); margin-top: 2px; }
+
+.sm-qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.sm-qr-wrap svg { width: 200px; height: 200px; border-radius: 8px; }
+.sm-qr-id { font-family: monospace; font-size: .72rem; color: var(--text-muted); word-break: break-all; text-align: center; margin: 0; }
+
+.sm-section { display: flex; flex-direction: column; gap: 8px; }
+.sm-section-title {
+  font-size: .72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.sm-empty { margin: 0; font-size: .85rem; color: var(--text-muted); }
+
+.sm-folder, .sm-device { align-items: center; }
+.sm-folder { flex-direction: column; align-items: stretch; gap: 8px; }
+.sm-folder-main { display: flex; flex-direction: column; }
+.sm-folder-name { font-weight: 700; font-size: .92rem; }
+.sm-folder-sub { font-size: .78rem; color: var(--text-muted); margin-top: 2px; }
+
+.sm-row-actions { display: flex; gap: 8px; }
+.sm-row-actions button { flex: 1; padding: 8px 10px; font-size: .82rem; }
+
+.sm-pending { flex-direction: column; align-items: stretch; gap: 8px; border-color: var(--accent); }
+.sm-pending-name { font-weight: 700; font-size: .92rem; }
+.sm-pending-sub { font-size: .78rem; color: var(--text-muted); }
+
+.sm-forget {
+  margin-top: 4px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--error);
+  font-size: .8rem;
+}

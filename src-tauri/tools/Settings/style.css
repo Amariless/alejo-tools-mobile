@@ -1,0 +1,51 @@
+.st-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.st-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.st-card-title {
+  font-size: .72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+}
+
+.st-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.st-list li {
+  background: var(--surface-alt);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: .88rem;
+}
+
+.st-version {
+  font-family: monospace;
+  font-size: .9rem;
+  color: var(--text-muted);
+}
+
+.st-update-msg {
+  margin: 0;
+  font-size: .82rem;
+  color: var(--text-muted);
+}
+.st-update-msg--new { color: var(--success); font-weight: 600; }
+.st-update-msg--error { color: var(--error); }
