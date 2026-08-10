@@ -19,16 +19,19 @@ dependencies = [
 
 [[package]]
 name = "alejo-tools-mobile"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "futures-util",
  "jni 0.21.1",
+ "once_cell",
  "qrcode",
+ "regex",
  "reqwest",
  "rust-embed",
  "rustls",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",

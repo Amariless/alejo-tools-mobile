@@ -20,6 +20,17 @@ registerRenderer("syncmanager", {
             connections: {},
             qr: null,
             showQr: false,
+            // NUEVO: conflictos de sincronización y archivos duplicados
+            // (pedido del usuario -- las playlists se duplican en Poweramp
+            // cuando Syncthing genera copias .sync-conflict-*). Requiere el
+            // permiso "Acceso a todos los archivos" para leer la carpeta real
+            // que sincroniza Syncthing-Android (ver storage.rs).
+            hasStorageAccess: null, // null = todavía no se consultó
+            showMaint: false,
+            conflicts: null,
+            duplicates: null,
+            maintBusy: false,
+            maintError: "",
         };
 
         function fmtBytes(n) {
@@ -186,8 +197,187 @@ registerRenderer("syncmanager", {
                 };
                 actions.append(pauseBtn, scanBtn);
                 row.appendChild(actions);
+
+                // NUEVO: "Recibir solamente" -- pedido del usuario para que
+                // los cambios hechos a mano en el celular (o los que hace
+                // Poweramp al tocar los archivos) dejen de mandarse de vuelta
+                // al resto de los dispositivos y de generar conflictos. Con
+                // este modo el celular solo recibe, nunca sube ediciones
+                // locales -- el PC sigue siendo la fuente de verdad.
+                const modeRow = el("div", { className: "sm-folder-mode" });
+                const isReceiveOnly = f.type === "receiveonly";
+                modeRow.innerHTML = `
+                    <label class="sm-switch-row">
+                        <span>Recibir solamente <span class="sm-hint-inline">(los cambios en el cel no se suben, evita conflictos)</span></span>
+                        <input type="checkbox" class="sm-receiveonly-toggle" ${isReceiveOnly ? "checked" : ""}>
+                    </label>`;
+                const toggle = modeRow.querySelector(".sm-receiveonly-toggle");
+                toggle.onchange = async () => {
+                    toggle.disabled = true;
+                    try {
+                        await invoke("sync_set_folder_type", { id: f.id, folderType: toggle.checked ? "receiveonly" : "sendreceive" });
+                        await refreshAll();
+                    } catch (e) {
+                        alert("Error: " + e);
+                        toggle.checked = !toggle.checked;
+                        toggle.disabled = false;
+                    }
+                };
+                row.appendChild(modeRow);
+
                 wrap.appendChild(row);
             });
+            return wrap;
+        }
+
+        // ── Mantenimiento: conflictos y duplicados ──────────────
+        function fmtDate(secs) {
+            if (!secs) return "";
+            try { return new Date(secs * 1000).toLocaleString(); } catch { return ""; }
+        }
+
+        async function ensureStorageAccess() {
+            try { S.hasStorageAccess = await invoke("sync_check_storage_permission"); }
+            catch { S.hasStorageAccess = false; }
+        }
+
+        async function loadMaint() {
+            S.maintBusy = true; S.maintError = ""; renderView();
+            try {
+                await ensureStorageAccess();
+                if (!S.hasStorageAccess) {
+                    S.conflicts = null; S.duplicates = null;
+                    return;
+                }
+                const [conflicts, duplicates] = await Promise.all([
+                    invoke("sync_list_conflicts"),
+                    invoke("sync_find_duplicate_files"),
+                ]);
+                S.conflicts = conflicts || [];
+                S.duplicates = duplicates || [];
+            } catch (e) {
+                S.maintError = String(e);
+            } finally {
+                S.maintBusy = false; renderView();
+            }
+        }
+
+        async function toggleMaint() {
+            S.showMaint = !S.showMaint;
+            if (S.showMaint && S.conflicts === null && S.duplicates === null) {
+                await loadMaint();
+            } else {
+                renderView();
+            }
+        }
+
+        function renderConflictGroup(g) {
+            const card = el("div", { className: "sm-card sm-conflict" });
+            const head = el("div", { className: "sm-conflict-head" });
+            head.innerHTML = `<div class="sm-conflict-name">⚠️ ${g.file_name}</div>
+                <div class="sm-conflict-sub">${g.folder_label} · ${g.variants.length} versiones</div>`;
+            card.appendChild(head);
+            const list = el("div", { className: "sm-conflict-variants" });
+            g.variants.forEach(v => {
+                const row = el("div", { className: "sm-variant-row" });
+                row.innerHTML = `
+                    <div class="sm-variant-info">
+                        <div>${v.is_original ? "📄 Original" : "🕓 " + (v.device_name || v.device_short_id || "conflicto")}</div>
+                        <div class="sm-variant-sub">${fmtDate(v.modified_secs)} · ${fmtBytes(v.size_bytes)}</div>
+                    </div>
+                    <button class="sm-keep-btn">Quedarme con esta</button>`;
+                row.querySelector(".sm-keep-btn").onclick = async (e) => {
+                    if (!confirm("Se va a aplicar esta versión y borrar las demás copias. ¿Continuar?")) return;
+                    e.target.disabled = true;
+                    try {
+                        await invoke("sync_resolve_conflict", {
+                            folderId: g.folder_id,
+                            basePath: g.base_path,
+                            keepPath: v.path,
+                            allPaths: g.variants.map(x => x.path),
+                        });
+                        await loadMaint();
+                    } catch (err) { alert("Error: " + err); e.target.disabled = false; }
+                };
+                list.appendChild(row);
+            });
+            card.appendChild(list);
+            return card;
+        }
+
+        function renderDuplicateGroup(g) {
+            const card = el("div", { className: "sm-card sm-conflict" });
+            const head = el("div", { className: "sm-conflict-head" });
+            head.innerHTML = `<div class="sm-conflict-name">📑 Archivos duplicados</div>
+                <div class="sm-conflict-sub">${g.folder_label} · ${g.paths.length} copias · ${fmtBytes(g.size_bytes)} c/u</div>`;
+            card.appendChild(head);
+            const list = el("div", { className: "sm-conflict-variants" });
+            g.paths.forEach(p => {
+                const name = p.split("/").pop();
+                const row = el("div", { className: "sm-variant-row" });
+                row.innerHTML = `
+                    <div class="sm-variant-info">
+                        <div>${name}</div>
+                        <div class="sm-variant-sub">${p}</div>
+                    </div>
+                    <button class="sm-keep-btn">Quedarme con esta</button>`;
+                row.querySelector(".sm-keep-btn").onclick = async (e) => {
+                    const rest = g.paths.filter(x => x !== p);
+                    if (!confirm(`Se van a borrar ${rest.length} copia(s), dejando solo esta. ¿Continuar?`)) return;
+                    e.target.disabled = true;
+                    try { await invoke("sync_delete_files", { paths: rest }); await loadMaint(); }
+                    catch (err) { alert("Error: " + err); e.target.disabled = false; }
+                };
+                list.appendChild(row);
+            });
+            card.appendChild(list);
+            return card;
+        }
+
+        function renderMaintSection() {
+            const wrap = el("div", { className: "sm-section" });
+            wrap.appendChild(el("div", { className: "sm-section-title", textContent: "Conflictos y duplicados" }));
+
+            if (S.hasStorageAccess === false) {
+                const permCard = el("div", { className: "sm-card sm-perm" });
+                permCard.innerHTML = `
+                    <div>
+                        <div class="sm-status-title">Falta un permiso</div>
+                        <div class="sm-status-sub">Para revisar archivos duplicados y conflictos de sincronización
+                        hace falta darle a Alejo Tools acceso a "Todos los archivos" -- Android lo pide así
+                        desde la versión 11 para poder leer la carpeta que sincroniza Syncthing.</div>
+                    </div>`;
+                const btn = el("button", { className: "primary", textContent: "Dar permiso" });
+                btn.onclick = async () => {
+                    try { await invoke("sync_request_storage_permission"); } catch (e) { alert("Error: " + e); }
+                };
+                const wrap2 = el("div", { className: "sm-perm-wrap" });
+                wrap2.append(permCard, btn);
+                wrap.appendChild(wrap2);
+                return wrap;
+            }
+
+            if (S.maintBusy) {
+                wrap.appendChild(el("p", { className: "sm-empty", textContent: "Buscando..." }));
+                return wrap;
+            }
+            if (S.maintError) {
+                wrap.appendChild(el("p", { className: "sm-error", textContent: S.maintError }));
+                return wrap;
+            }
+
+            const refreshRow = el("button", { textContent: "↻ Volver a buscar" });
+            refreshRow.onclick = () => loadMaint();
+            wrap.appendChild(refreshRow);
+
+            const conflicts = S.conflicts || [];
+            const duplicates = S.duplicates || [];
+            if (!conflicts.length && !duplicates.length) {
+                wrap.appendChild(el("p", { className: "sm-empty", textContent: "No se encontraron conflictos ni duplicados. 🎉" }));
+                return wrap;
+            }
+            conflicts.forEach(g => wrap.appendChild(renderConflictGroup(g)));
+            duplicates.forEach(g => wrap.appendChild(renderDuplicateGroup(g)));
             return wrap;
         }
 
@@ -225,7 +415,9 @@ registerRenderer("syncmanager", {
             refreshBtn.onclick = () => refreshAll();
             const qrBtn = el("button", { textContent: S.showQr ? "Ocultar QR" : "Emparejar (QR)" });
             qrBtn.onclick = toggleQr;
-            toolbar.append(refreshBtn, qrBtn);
+            const maintBtn = el("button", { textContent: S.showMaint ? "Ocultar" : "🧹 Duplicados" });
+            maintBtn.onclick = toggleMaint;
+            toolbar.append(refreshBtn, qrBtn, maintBtn);
             root.appendChild(toolbar);
 
             root.appendChild(renderStatusCard());
@@ -239,6 +431,10 @@ registerRenderer("syncmanager", {
                     qrWrap.textContent = "Generando...";
                 }
                 root.appendChild(qrWrap);
+            }
+
+            if (S.showMaint) {
+                root.appendChild(renderMaintSection());
             }
 
             if (S.status && S.status.connected) {

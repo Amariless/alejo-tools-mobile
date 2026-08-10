@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- NUEVO: instalador in-app de actualizaciones (ver update.rs,
          download_and_install_update, e installer.rs). Sin este permiso,
@@ -7,6 +8,21 @@
          descargado y exige que el usuario habilite "orígenes desconocidos"
          a mano primero para nuestra propia app. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- NUEVO (pedido del usuario, detectar conflictos/duplicados en
+         SyncManager): la carpeta que sincroniza Syncthing-Android vive en
+         storage compartido normal, no privado de esa app (por eso
+         Poweramp también puede leerla), pero desde Android 11 leer
+         archivos de OTRA app ahí a partir de una ruta cruda (la que
+         devuelve la propia API de Syncthing) exige el permiso especial
+         "Acceso a todos los archivos", ningún permiso más chico alcanza
+         para esto sin pedirle al usuario que elija carpeta por carpeta a
+         mano con el selector de Android. Se pide en tiempo de ejecución
+         (ver storage.rs) con la pantalla de ajustes que Android exige
+         para este permiso puntual, no hay diálogo rápido como con el
+         resto de los permisos. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />

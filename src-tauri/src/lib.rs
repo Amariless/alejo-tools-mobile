@@ -29,6 +29,7 @@ use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 
 mod installer;
+mod storage;
 mod syncthing;
 mod tls;
 mod update;
@@ -164,6 +165,13 @@ pub fn run() {
             syncthing::sync_add_device,
             syncthing::sync_share_folder,
             syncthing::sync_my_id_qr,
+            syncthing::sync_set_folder_type,
+            syncthing::sync_list_conflicts,
+            syncthing::sync_resolve_conflict,
+            syncthing::sync_find_duplicate_files,
+            syncthing::sync_delete_files,
+            storage::sync_check_storage_permission,
+            storage::sync_request_storage_permission,
             // Auto-actualización por GitHub Releases
             update::check_for_update,
             update::download_and_install_update,
