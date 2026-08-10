@@ -1,0 +1,7 @@
+{
+  "name": "Gastos",
+  "icon": "💰",
+  "description": "Registro de gastos mensuales por categoría",
+  "input": "gastos",
+  "persistent": false
+}

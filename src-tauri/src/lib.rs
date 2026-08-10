@@ -29,6 +29,7 @@ use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 
 mod downloader;
+mod expenses;
 mod installer;
 mod notes;
 mod pomodoro;
@@ -185,6 +186,11 @@ pub fn run() {
             notes::notes_list,
             notes::notes_save,
             notes::notes_delete,
+            // Gastos
+            expenses::expenses_list,
+            expenses::expenses_save,
+            expenses::expenses_delete,
+            expenses::expenses_set_currency,
             // Auto-actualización por GitHub Releases
             update::check_for_update,
             update::download_and_install_update,
