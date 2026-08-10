@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- NUEVO: instalador in-app de actualizaciones (ver update.rs,
+         download_and_install_update, e installer.rs). Sin este permiso,
+         Android bloquea el Intent de instalación que armamos con el .apk
+         descargado y exige que el usuario habilite "orígenes desconocidos"
+         a mano primero para nuestra propia app. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />

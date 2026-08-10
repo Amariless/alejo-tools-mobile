@@ -1,6 +1,6 @@
 [package]
 name = "alejo-tools-mobile"
-version = "0.1.1"
+version = "0.1.2"
 description = "Alejo Tools Mobile"
 authors = ["Amariles"]
 edition = "2021"
@@ -51,7 +51,12 @@ rust-embed = { version = "8", features = ["debug-embed"] }
 # rustls::ClientConfig a mano con raíces embebidas (webpki-roots, ver más
 # abajo) y se lo pasa a reqwest con use_preconfigured_tls() -- eso evita
 # por completo el camino de rustls-platform-verifier.
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream"] }
+# NUEVO (instalador in-app): descarga el .apk como stream en vez de bytes
+# enteros en memoria (son 150-280MB -- cargarlo entero de una en RAM en un
+# teléfono es innecesario) y lo va escribiendo a disco a medida que llega.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio = { version = "1", features = ["fs", "time", "io-util"] }
 # "aws-lc-rs" (no "ring"): reqwest ya trae aws-lc-sys como su backend
 # criptográfico por defecto (ya cross-compiló bien para aarch64-android en
 # este mismo proyecto) -- usar el mismo acá evita compilar DOS backends de
@@ -62,4 +67,20 @@ webpki-roots = "1"
 # mecanismo que el escritorio (armar el SVG a mano con QrCode::to_colors(),
 # sin el feature "svg" del crate).
 qrcode = { version = "0.14", default-features = false }
+
+# NUEVO (instalador in-app de actualizaciones, ver installer.rs): Android
+# no deja pedirle a otra app (el instalador de paquetes del sistema) que
+# abra un archivo file:// de nuestro propio storage privado -- hace falta
+# convertirlo a una URI content:// vía FileProvider (ya declarado en
+# AndroidManifest.xml) y lanzar el Intent de instalación a mano. Ni Tauri
+# ni tauri-plugin-opener hacen esa conversión por nosotros en Android (se
+# confirmó leyendo su fuente: openPath ahí simplemente hace
+# Intent.ACTION_VIEW sobre el path crudo, lo cual con un archivo propio
+# tira FileUriExposedException) -- así que se llama a FileProvider/Intent
+# directo por JNI. "ndk-context" es la forma estándar de conseguir el
+# JavaVM/Activity de Android sin escribir ningún componente Kotlin propio
+# ni registrar un plugin nuevo en Gradle -- wry/tao (que Tauri ya trae)
+# los publican ahí como estático global apenas arranca la Activity.
+jni = "0.21"
+ndk-context = "0.1"
 

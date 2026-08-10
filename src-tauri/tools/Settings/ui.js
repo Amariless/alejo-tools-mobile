@@ -2,9 +2,13 @@
 //
 // Sin Play Store de por medio -- "actualizar" acá compara la versión
 // instalada contra el último Release de GitHub (ver update.rs) y, si hay
-// una más nueva, abre el navegador directo en la URL del .apk. Android
-// siempre pide confirmación humana para instalar -- no hay forma de
-// saltarse eso, ni con esta app ni con ninguna otra fuera de una store.
+// una más nueva, la DESCARGA nosotros mismos (ver
+// download_and_install_update en update.rs) y le pide al sistema que la
+// instale (ver installer.rs, FileProvider + Intent por JNI) -- Android
+// igual va a pedir confirmación humana para instalar (no hay forma de
+// saltarse eso, ni con esta app ni con ninguna otra fuera de una store),
+// pero al menos no hace falta salir al navegador ni volver a abrir el
+// archivo a mano.
 registerRenderer("settings", {
     render(tool, area) {
         const wrap = el("div", { className: "st-wrap" });
@@ -23,6 +27,7 @@ registerRenderer("settings", {
                 <div class="st-card-title">Versión</div>
                 <div class="st-version" id="st-current-version">…</div>
                 <button id="st-update-btn" class="primary">Buscar actualizaciones</button>
+                <div class="st-progress hidden" id="st-progress"><div class="st-progress-bar" id="st-progress-bar"></div></div>
                 <p class="st-update-msg" id="st-update-msg"></p>
             </div>
         `;
@@ -30,6 +35,45 @@ registerRenderer("settings", {
         const btn = wrap.querySelector("#st-update-btn");
         const msg = wrap.querySelector("#st-update-msg");
         const versionEl = wrap.querySelector("#st-current-version");
+        const progressWrap = wrap.querySelector("#st-progress");
+        const progressBar = wrap.querySelector("#st-progress-bar");
+
+        function fmtMb(bytes) {
+            return (bytes / (1024 * 1024)).toFixed(1);
+        }
+
+        async function downloadAndInstall(info) {
+            btn.disabled = true;
+            progressWrap.classList.remove("hidden");
+            progressBar.style.width = "0%";
+            msg.textContent = "Descargando…";
+            msg.className = "st-update-msg";
+
+            let unlisten = null;
+            try {
+                unlisten = await window.__TAURI__.event.listen("update-download-progress", (e) => {
+                    const { downloaded, total, percent } = e.payload;
+                    if (percent != null) {
+                        progressBar.style.width = `${percent.toFixed(0)}%`;
+                        msg.textContent = total
+                            ? `Descargando… ${fmtMb(downloaded)} MB / ${fmtMb(total)} MB (${percent.toFixed(0)}%)`
+                            : `Descargando… ${fmtMb(downloaded)} MB`;
+                    }
+                });
+                await invoke("download_and_install_update", { url: info.apk_url });
+                msg.textContent = "Listo -- confirmá la instalación en el diálogo del sistema.";
+                msg.classList.add("st-update-msg--new");
+            } catch (e) {
+                msg.textContent = "Error al descargar/instalar: " + e;
+                msg.classList.add("st-update-msg--error");
+            } finally {
+                if (unlisten) unlisten();
+                progressWrap.classList.add("hidden");
+                btn.disabled = false;
+                btn.textContent = "Buscar actualizaciones";
+                btn.onclick = checkUpdate;
+            }
+        }
 
         async function checkUpdate() {
             btn.disabled = true;
@@ -43,15 +87,9 @@ registerRenderer("settings", {
                 msg.textContent = info.message;
                 if (info.is_newer && info.apk_url) {
                     msg.classList.add("st-update-msg--new");
-                    btn.textContent = `Descargar v${info.latest_version}`;
+                    btn.textContent = `Descargar e instalar v${info.latest_version}`;
                     btn.disabled = false;
-                    btn.onclick = () => {
-                        try {
-                            window.__TAURI__.opener.openUrl(info.apk_url);
-                        } catch (e) {
-                            alert("No se pudo abrir el navegador: " + e);
-                        }
-                    };
+                    btn.onclick = () => downloadAndInstall(info);
                 } else {
                     btn.textContent = original;
                     btn.disabled = false;

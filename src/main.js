@@ -6,15 +6,18 @@
 // descubre, y cada ui.js se ejecuta con el mismo contrato de funciones
 // (window._toolCtx, registerRenderer/getRenderer, invoke, el, lbl,
 // runTool, appendLine, etc.) — así una herramienta portada desde el
-// escritorio (SyncManager, Descargar Música) necesita tocar lo mínimo de
-// su ui.js para correr acá.
+// escritorio necesita tocar lo mínimo de su ui.js para correr acá.
+//
+// Navegación (pedido del usuario -- antes era una barra de pestañas
+// abajo): pantalla de inicio con la lista de herramientas, tocar una
+// entra a pantalla completa con una flecha "←" arriba a la izquierda
+// para volver a la lista -- patrón estándar de navegación por lista en
+// Android/iOS, en vez de tabs siempre visibles.
 //
 // Lo que NO se portó (no tiene sentido en un teléfono, o es exclusivo de
 // Windows en el original): barra de título sin bordes + drag, bandeja del
 // sistema, autostart, mini-navegador de búsqueda, autofill de WebView2,
 // SkinManager (skins de escritorio con ventana transparente), F11/F12.
-// La navegación es una barra de pestañas ABAJO (patrón Android) en vez de
-// un sidebar a la izquierda.
 const { invoke } = window.__TAURI__.core;
 const { listen }  = window.__TAURI__.event;
 
@@ -22,9 +25,10 @@ let tools      = [];
 let activeTool = null;
 let isRunning  = false;
 
-const tabBar         = document.getElementById("tab-bar");
-const welcome        = document.getElementById("welcome");
+const toolListEl     = document.getElementById("tool-list");
 const toolView       = document.getElementById("tool-view");
+const appBar         = document.getElementById("app-bar");
+const appBarBack     = document.getElementById("app-bar-back");
 const appBarIcon     = document.getElementById("app-bar-icon");
 const appBarTitle    = document.getElementById("app-bar-title");
 const appBarDesc     = document.getElementById("app-bar-desc");
@@ -35,8 +39,9 @@ const styleOverride  = document.getElementById("tool-style-override");
 // ════════════════════════════════════════════════════════
 //  HERRAMIENTAS PERSISTENTES — igual que en escritorio: una herramienta
 //  con "persistent": true en su tool.json recibe un contenedor propio que
-//  nunca se destruye al cambiar de pestaña, solo se oculta (para que una
-//  sincronización o descarga en curso siga viva de fondo).
+//  nunca se destruye al salir de ella, solo se oculta (para que una
+//  sincronización o descarga en curso siga viva de fondo aunque el
+//  usuario vuelva a la lista).
 // ════════════════════════════════════════════════════════
 const persistentTools = {}; // id -> { el, initialized }
 
@@ -130,43 +135,80 @@ async function init() {
 
     tools = await invoke("list_tools");
     await Promise.all(tools.filter(t => t.has_ui).map(loadToolUi));
-    renderTabBar();
     await listen("tool-output", onToolOutput);
     await listen("tool-done", onToolDone);
 
-    if (tools.length) {
-        selectTool(tools[0]);
-    } else {
-        welcome.querySelector("p").textContent = "Sin herramientas todavía";
-    }
+    renderToolList();
+    showList();
 }
 
-function renderTabBar() {
-    tabBar.innerHTML = "";
+// ── Pantalla de inicio: lista de herramientas ───────────
+function renderToolList() {
+    toolListEl.innerHTML = "";
+    if (!tools.length) {
+        toolListEl.appendChild(el("p", { className: "tool-list-empty", textContent: "Sin herramientas todavía" }));
+        return;
+    }
     tools.forEach(tool => {
-        const item = el("button", { className: "tab-item", type: "button" });
-        item.dataset.id = tool.id;
-        item.innerHTML = `<span class="tab-item-icon">${tool.icon}</span><span class="tab-item-name">${tool.name}</span>`;
+        const item = el("button", { className: "tool-list-item", type: "button" });
+        item.innerHTML = `
+            <span class="tool-list-item-icon">${tool.icon}</span>
+            <div class="tool-list-item-text">
+                <div class="tool-list-item-name">${tool.name}</div>
+                <div class="tool-list-item-desc">${tool.description || ""}</div>
+            </div>
+            <span class="tool-list-item-chevron">›</span>
+        `;
         item.onclick = () => selectTool(tool);
-        tabBar.appendChild(item);
+        toolListEl.appendChild(item);
     });
 }
 
-async function selectTool(tool) {
-    if (activeTool?.id === tool.id) return;
+// ── Navegación entre lista y herramienta ────────────────
+function showList() {
+    toolListEl.classList.remove("hidden");
+    toolView.classList.add("hidden");
+    appBarBack.classList.add("hidden");
+    appBar.classList.remove("app-bar--tool");
+    appBarIcon.textContent = "";
+    appBarTitle.textContent = "Alejo Tools";
+    appBarDesc.textContent = "";
+    styleOverride.textContent = "";
+}
 
-    if (activeTool && !activeTool.persistent) {
+function showToolView() {
+    toolListEl.classList.add("hidden");
+    toolView.classList.remove("hidden");
+    appBarBack.classList.remove("hidden");
+    appBar.classList.add("app-bar--tool");
+}
+
+async function deactivateCurrentTool() {
+    if (!activeTool) return;
+    if (!activeTool.persistent) {
         const prev = getRenderer(activeTool.input);
         if (prev?.onLeave) prev.onLeave();
         try { await Promise.race([invoke("kill_tool", { toolId: activeTool.id }), new Promise(r => setTimeout(r, 300))]); } catch (e) {}
-    } else if (activeTool && activeTool.persistent) {
+    } else {
         const entry = persistentTools[activeTool.id];
         if (entry) entry.el.style.display = "none";
     }
+}
+
+async function goBack() {
+    await deactivateCurrentTool();
+    activeTool = null;
+    isRunning = false;
+    showList();
+}
+appBarBack.onclick = goBack;
+
+async function selectTool(tool) {
+    if (activeTool?.id === tool.id) return;
+    await deactivateCurrentTool();
 
     activeTool = tool; isRunning = false;
-    document.querySelectorAll(".tab-item").forEach(e => e.classList.toggle("active", e.dataset.id === tool.id));
-    welcome.classList.add("hidden"); toolView.classList.remove("hidden");
+    showToolView();
 
     appBarIcon.textContent = tool.icon;
     appBarTitle.textContent = tool.name;

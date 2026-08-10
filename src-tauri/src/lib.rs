@@ -28,6 +28,7 @@ use std::collections::HashMap;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 
+mod installer;
 mod syncthing;
 mod tls;
 mod update;
@@ -165,6 +166,7 @@ pub fn run() {
             syncthing::sync_my_id_qr,
             // Auto-actualización por GitHub Releases
             update::check_for_update,
+            update::download_and_install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

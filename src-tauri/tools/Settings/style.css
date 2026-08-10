@@ -49,3 +49,17 @@
 }
 .st-update-msg--new { color: var(--success); font-weight: 600; }
 .st-update-msg--error { color: var(--error); }
+
+.st-progress {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-alt);
+  overflow: hidden;
+}
+.st-progress.hidden { display: none; }
+.st-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width .15s linear;
+}

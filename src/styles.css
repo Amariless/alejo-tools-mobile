@@ -1,10 +1,12 @@
 /* styles.css — shell de Alejo Tools Mobile.
  *
  * Layout fijo pensado para teléfono: app-bar arriba, contenido scrolleable
- * al medio, barra de pestañas abajo (con el "safe area" del gesto/barra de
- * navegación de Android). Claro/oscuro sigue prefers-color-scheme del
- * sistema -- no hay selector de tema todavía (eso vive en Settings, que
- * todavía no se portó).
+ * al medio. Navegación por lista (patrón estándar Android/iOS, pedido del
+ * usuario -- antes era una barra de pestañas siempre visible abajo): la
+ * pantalla de inicio muestra todas las herramientas como lista, tocar una
+ * entra a pantalla completa con una flecha "←" en el app-bar para volver.
+ * Claro/oscuro sigue prefers-color-scheme del sistema -- no hay selector
+ * de tema todavía (eso vive en Settings, que todavía no se portó).
  */
 
 :root {
@@ -72,6 +74,26 @@ body {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
+#app-bar-back {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 1.3rem;
+  line-height: 1;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#app-bar-back.hidden { display: none; }
+/* Sin ícono/descripción en la pantalla de inicio (ver showList() en
+   main.js, que los deja vacíos) -- si quedaran vacíos ocupando espacio
+   igual, el título quedaría corrido sin necesidad. */
+#app-bar-icon:empty { display: none; }
+#app-bar-desc:empty { display: none; }
 #app-bar-icon {
   font-size: 1.6rem;
   line-height: 1;
@@ -104,17 +126,58 @@ body {
   flex-direction: column;
 }
 
-#welcome {
-  flex: 1;
+/* ── Pantalla de inicio: lista de herramientas ───────── */
+#tool-list {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: var(--text-muted);
+  padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  gap: 8px;
 }
-#welcome-icon { font-size: 2.4rem; }
-#welcome.hidden { display: none; }
+#tool-list.hidden { display: none; }
+
+.tool-list-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: .9rem;
+}
+
+.tool-list-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-align: left;
+}
+.tool-list-item-icon {
+  flex: 0 0 auto;
+  font-size: 1.6rem;
+  line-height: 1;
+  width: 36px;
+  text-align: center;
+}
+.tool-list-item-text { flex: 1; min-width: 0; }
+.tool-list-item-name {
+  font-size: .95rem;
+  font-weight: 700;
+}
+.tool-list-item-desc {
+  margin-top: 2px;
+  font-size: .78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tool-list-item-chevron {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 1.3rem;
+}
 
 #tool-view {
   flex: 1;
@@ -141,39 +204,6 @@ body {
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: .82rem;
 }
-
-/* ── Barra de pestañas (bottom nav) ──────────────────── */
-#tab-bar {
-  flex: 0 0 auto;
-  display: flex;
-  overflow-x: auto;
-  background: var(--surface);
-  border-top: 1px solid var(--border);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-.tab-item {
-  flex: 1 0 auto;
-  min-width: 72px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 8px 10px 6px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font: inherit;
-  cursor: pointer;
-}
-.tab-item-icon { font-size: 1.25rem; }
-.tab-item-name {
-  font-size: .68rem;
-  white-space: nowrap;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tab-item.active { color: var(--accent); }
 
 /* ── Controles genéricos usados por las herramientas ─── */
 .input-row {
