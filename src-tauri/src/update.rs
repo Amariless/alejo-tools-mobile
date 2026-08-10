@@ -174,7 +174,7 @@ pub async fn download_and_install_update(app: AppHandle, url: String) -> Result<
     let _ = app.emit("update-download-progress", DownloadProgress { downloaded, total, percent: Some(100.0) });
 
     let dest_str = dest.to_string_lossy().to_string();
-    crate::installer::install_apk(&dest_str)?;
+    crate::installer::install_apk(&app, &dest_str).await?;
 
     // Mejor esfuerzo: borra el .apk descargado un rato después de haber
     // lanzado el instalador. No hay ninguna forma simple de saber "ya

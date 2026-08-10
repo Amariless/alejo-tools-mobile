@@ -1,6 +1,6 @@
 [package]
 name = "alejo-tools-mobile"
-version = "0.1.2"
+version = "0.1.3"
 description = "Alejo Tools Mobile"
 authors = ["Amariles"]
 edition = "2021"
@@ -77,10 +77,9 @@ qrcode = { version = "0.14", default-features = false }
 # confirmó leyendo su fuente: openPath ahí simplemente hace
 # Intent.ACTION_VIEW sobre el path crudo, lo cual con un archivo propio
 # tira FileUriExposedException) -- así que se llama a FileProvider/Intent
-# directo por JNI. "ndk-context" es la forma estándar de conseguir el
-# JavaVM/Activity de Android sin escribir ningún componente Kotlin propio
-# ni registrar un plugin nuevo en Gradle -- wry/tao (que Tauri ya trae)
-# los publican ahí como estático global apenas arranca la Activity.
+# directo por JNI, usando el WebviewWindow::with_webview(...).jni_handle()
+# que Tauri/wry ya exponen (ver installer.rs para el porqué NO se usa el
+# crate "ndk-context": esta versión de tao no lo inicializa, panickea en
+# vivo con "android context was not initialized").
 jni = "0.21"
-ndk-context = "0.1"
 
