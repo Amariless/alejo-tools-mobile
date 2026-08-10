@@ -4,5 +4,7 @@
 
   "SyncManager":     10,
   "DescargarMusica": 20,
+  "Pomodoro":        30,
+  "IdeasRapidas":    40,
   "Settings":        999
 }

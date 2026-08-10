@@ -1,0 +1,7 @@
+{
+  "name": "Ideas rápidas",
+  "icon": "📝",
+  "description": "Notas sueltas para no perder una idea",
+  "input": "ideasrapidas",
+  "persistent": false
+}

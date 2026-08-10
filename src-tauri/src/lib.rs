@@ -30,6 +30,8 @@ use serde::{Deserialize, Serialize};
 
 mod downloader;
 mod installer;
+mod notes;
+mod pomodoro;
 mod storage;
 mod syncthing;
 mod tls;
@@ -176,6 +178,13 @@ pub fn run() {
             // Descargar Música (yt-dlp vía youtubedl-android)
             downloader::dl_fetch_info,
             downloader::dl_download,
+            // Pomodoro
+            pomodoro::pomodoro_get_config,
+            pomodoro::pomodoro_set_config,
+            // Ideas rápidas
+            notes::notes_list,
+            notes::notes_save,
+            notes::notes_delete,
             // Auto-actualización por GitHub Releases
             update::check_for_update,
             update::download_and_install_update,
