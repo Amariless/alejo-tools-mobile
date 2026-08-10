@@ -27,6 +27,21 @@ fn http() -> &'static reqwest::Client {
     HTTP_ST.get_or_init(|| crate::tls::client("AlejoToolsMobile-SyncManager/1.0", 15))
 }
 
+/// reqwest::Error a secas solo muestra "error sending request for url
+/// (...)" -- inútil para diagnosticar de verdad (¿conexión rechazada?
+/// ¿timeout? ¿DNS?). El motivo real vive en la cadena de .source(), que
+/// Display no sigue solo -- esto la recorre entera y la concatena.
+fn describe_reqwest_err(e: &reqwest::Error) -> String {
+    let mut msg = e.to_string();
+    let mut source = std::error::Error::source(e);
+    while let Some(s) = source {
+        msg.push_str(" -- causa: ");
+        msg.push_str(&s.to_string());
+        source = s.source();
+    }
+    msg
+}
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct SyncConfig {
     #[serde(default = "default_host")]
@@ -80,7 +95,7 @@ async fn st_get(app: &AppHandle, path: &str) -> Result<serde_json::Value, String
         .header("X-API-Key", &cfg.api_key)
         .send()
         .await
-        .map_err(|e| format!("No se pudo conectar con Syncthing: {e}"))?;
+        .map_err(|e| format!("No se pudo conectar con Syncthing: {}", describe_reqwest_err(&e)))?;
     if !resp.status().is_success() {
         return Err(format!("Syncthing respondió {}", resp.status()));
     }
@@ -95,7 +110,7 @@ async fn st_put(app: &AppHandle, path: &str, body: &serde_json::Value) -> Result
         .json(body)
         .send()
         .await
-        .map_err(|e| format!("No se pudo conectar con Syncthing: {e}"))?;
+        .map_err(|e| format!("No se pudo conectar con Syncthing: {}", describe_reqwest_err(&e)))?;
     if !resp.status().is_success() {
         let msg = resp.text().await.unwrap_or_default();
         return Err(format!("Syncthing rechazó el cambio: {msg}"));
@@ -110,7 +125,7 @@ async fn st_post(app: &AppHandle, path: &str) -> Result<(), String> {
         .header("X-API-Key", &cfg.api_key)
         .send()
         .await
-        .map_err(|e| format!("No se pudo conectar con Syncthing: {e}"))?;
+        .map_err(|e| format!("No se pudo conectar con Syncthing: {}", describe_reqwest_err(&e)))?;
     if !resp.status().is_success() {
         return Err(format!("Syncthing respondió {}", resp.status()));
     }
