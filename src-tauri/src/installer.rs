@@ -63,9 +63,26 @@ pub async fn install_apk(app: &tauri::AppHandle, path: &str) -> Result<(), Strin
                         .new_string(&authority)
                         .map_err(|e| format!("No se pudo crear el string de authority: {e}"))?;
 
+                    // NUEVO (bug real, confirmado en vivo --
+                    // NoClassDefFoundError): buscar "androidx/core/
+                    // content/FileProvider" por nombre con
+                    // call_static_method usa FindClass, que en el hilo
+                    // donde corre este closure (el del JNI de wry)
+                    // resuelve contra el classloader del SISTEMA, no el
+                    // de esta app -- FileProvider (AndroidX) solo existe
+                    // en el .dex de la app, nunca ahí. wry::find_class le
+                    // pide la clase a la Activity (que sí tiene el
+                    // classloader correcto) en vez de buscarla directo.
+                    let file_provider_class = wry::prelude::find_class(
+                        env,
+                        activity,
+                        "androidx.core.content.FileProvider".to_string(),
+                    )
+                    .map_err(|e| format!("No se pudo encontrar la clase FileProvider: {e}"))?;
+
                     let apk_uri = env
                         .call_static_method(
-                            "androidx/core/content/FileProvider",
+                            file_provider_class,
                             "getUriForFile",
                             "(Landroid/content/Context;Ljava/lang/String;Ljava/io/File;)Landroid/net/Uri;",
                             &[
