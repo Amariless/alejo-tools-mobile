@@ -28,6 +28,7 @@ use std::collections::HashMap;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 
+mod downloader;
 mod installer;
 mod storage;
 mod syncthing;
@@ -172,6 +173,9 @@ pub fn run() {
             syncthing::sync_delete_files,
             storage::sync_check_storage_permission,
             storage::sync_request_storage_permission,
+            // Descargar Música (yt-dlp vía youtubedl-android)
+            downloader::dl_fetch_info,
+            downloader::dl_download,
             // Auto-actualización por GitHub Releases
             update::check_for_update,
             update::download_and_install_update,

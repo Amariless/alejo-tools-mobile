@@ -31,7 +31,21 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.alejo_tools_mobile"
-        android:usesCleartextTraffic="${usesCleartextTraffic}">
+        android:usesCleartextTraffic="${usesCleartextTraffic}"
+        android:extractNativeLibs="true">
+        <!-- NUEVO (Descargar Música, bug real en el emulador: "failed to
+             initialize" de YoutubeDL.init(), causado en logcat por "Failed
+             to punch uncompressed elf file: libffmpeg.zip.so"). AGP moderno
+             por defecto mapea los .so directo adentro del APK sin
+             extraerlos a disco (ahorra espacio), lo que exige que cada .so
+             sea un ELF válido y alineado, pero youtubedl-android/ffmpeg
+             empaquetan su intérprete Python y ffmpeg como un .zip disfrazado
+             de .so (libpython.zip.so/libffmpeg.zip.so) para poder viajar
+             dentro de jniLibs/, no son ELFs de verdad. extractNativeLibs
+             fuerza al sistema a EXTRAER todos los .so a disco en la
+             instalación en vez de mapearlos directo desde el APK, evitando
+             esa validación. -->
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:launchMode="singleTask"

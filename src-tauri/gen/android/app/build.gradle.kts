@@ -51,6 +51,15 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    // NUEVO (Descargar Música): pareja de android:extractNativeLibs="true"
+    // en AndroidManifest.xml -- ver el comentario ahí para el porqué (bug
+    // real, YoutubeDL.init() fallaba con "failed to initialize" porque
+    // youtubedl-android empaqueta su Python/ffmpeg como .zip disfrazado de
+    // .so, no como ELFs de verdad). Gradle avisa explícitamente que hace
+    // falta esta línea cuando esa flag del manifest está en "true".
+    packaging {
+        jniLibs.useLegacyPackaging = true
+    }
 }
 
 rust {
@@ -63,6 +72,13 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
+    // NUEVO (Descargar Música): yt-dlp no existe como binario de PATH en
+    // Android (a diferencia de escritorio, ver downloader.rs de alejo-tools).
+    // youtubedl-android empaqueta un build de Python + yt-dlp + ffmpeg por
+    // ABI dentro del propio APK -- ver YtDlpBridge.kt para el puente
+    // Kotlin<->Rust (JNI) que expone esto a los comandos de Tauri.
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")
