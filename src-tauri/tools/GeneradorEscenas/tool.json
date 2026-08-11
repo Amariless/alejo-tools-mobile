@@ -1,0 +1,7 @@
+{
+  "name": "Generador de Escenas",
+  "icon": "🎬",
+  "description": "Genera ideas de escenas 3D con ambientación, estado y atmósfera",
+  "input": "scene",
+  "persistent": false
+}

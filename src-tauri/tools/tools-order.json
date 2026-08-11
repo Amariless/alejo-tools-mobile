@@ -9,5 +9,6 @@
   "Gastos":          50,
   "PaletaColores":   60,
   "CreadorTexturas": 70,
+  "GeneradorEscenas": 80,
   "Settings":        999
 }

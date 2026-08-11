@@ -33,6 +33,7 @@ mod expenses;
 mod installer;
 mod notes;
 mod pomodoro;
+mod scene_prompts;
 mod storage;
 mod syncthing;
 mod textures;
@@ -194,6 +195,9 @@ pub fn run() {
             expenses::expenses_set_currency,
             // Creador de Texturas
             textures::save_texture_png,
+            // Generador de Escenas
+            scene_prompts::scene_prompts_list,
+            scene_prompts::scene_prompts_save_all,
             // Auto-actualización por GitHub Releases
             update::check_for_update,
             update::download_and_install_update,
