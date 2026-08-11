@@ -1,0 +1,68 @@
+.tx-root {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tx-hidden-input { display: none; }
+.tx-pick-row { display: flex; gap: 8px; }
+.tx-pick-row button { flex: 1; }
+
+.tx-empty {
+  margin: 0;
+  font-size: .85rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 24px 0;
+}
+
+.tx-slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: .82rem;
+  color: var(--text-muted);
+}
+.tx-slider-row input[type="range"] { width: 100%; }
+
+.tx-saved-msg {
+  margin: 0;
+  font-size: .78rem;
+  color: var(--success);
+  overflow-wrap: anywhere;
+}
+.tx-saved-msg--error { color: var(--error); }
+
+.tx-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.tx-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tx-card-title { font-size: .76rem; font-weight: 700; text-align: center; }
+.tx-canvas-wrap {
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.tx-canvas { width: 100%; height: auto; display: block; }
+.tx-card button { width: 100%; padding: 6px; font-size: .78rem; }
+
+.tx-hint {
+  margin: 0;
+  font-size: .74rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}

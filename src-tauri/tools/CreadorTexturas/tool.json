@@ -1,0 +1,7 @@
+{
+  "name": "Creador de Texturas",
+  "icon": "🧱",
+  "description": "Foto de una superficie → normal map y set de texturas",
+  "input": "creadortexturas",
+  "persistent": false
+}

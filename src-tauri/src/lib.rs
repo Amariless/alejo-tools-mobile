@@ -35,6 +35,7 @@ mod notes;
 mod pomodoro;
 mod storage;
 mod syncthing;
+mod textures;
 mod tls;
 mod update;
 
@@ -191,6 +192,8 @@ pub fn run() {
             expenses::expenses_save,
             expenses::expenses_delete,
             expenses::expenses_set_currency,
+            // Creador de Texturas
+            textures::save_texture_png,
             // Auto-actualización por GitHub Releases
             update::check_for_update,
             update::download_and_install_update,
