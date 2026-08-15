@@ -29,6 +29,7 @@ use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 
 mod downloader;
+mod epub;
 mod expenses;
 mod installer;
 mod notes;
@@ -207,6 +208,15 @@ pub fn run() {
             pdf::pdf_render_page,
             pdf::pdf_close,
             pdf::pdf_take_pending_uri,
+            // Lector de Libros (EPUB)
+            epub::book_get_config,
+            epub::book_set_config,
+            epub::book_list_folder,
+            epub::book_open,
+            epub::book_get_chapter,
+            epub::book_close,
+            epub::book_get_progress,
+            epub::book_set_progress,
             // Auto-actualización por GitHub Releases
             update::check_for_update,
             update::download_and_install_update,

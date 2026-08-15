@@ -1,6 +1,6 @@
 [package]
 name = "alejo-tools-mobile"
-version = "0.1.12"
+version = "0.1.13"
 description = "Alejo Tools Mobile"
 authors = ["Amariles"]
 edition = "2021"
@@ -73,6 +73,15 @@ once_cell = "1"
 # mismo mecanismo 1:1 que el escritorio, ver syncthing.rs.
 regex = "1"
 sha2 = "0.10"
+# Lector de Libros: un .epub es un .zip con XHTML adentro (spec OCF) -- a
+# diferencia del Lector de PDF (que usa PdfRenderer, nativo del SDK de
+# Android vía JNI), acá NO hay ningún API de plataforma equivalente para
+# EPUB, así que el parseo es Rust puro multiplataforma (mismo binario en
+# Windows dev y en el APK, sin puente Kotlin). "deflate" alcanza -- es el
+# único método de compresión que usan los .epub reales (el archivo
+# "mimetype" va STORED sin comprimir por spec, eso ya lo soporta el crate
+# sin features extra).
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # NUEVO (instalador in-app de actualizaciones, ver installer.rs): Android
 # no deja pedirle a otra app (el instalador de paquetes del sistema) que

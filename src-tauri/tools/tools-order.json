@@ -11,5 +11,6 @@
   "CreadorTexturas": 70,
   "GeneradorEscenas": 80,
   "LectorPDF":       90,
+  "LectorLibros":    100,
   "Settings":        999
 }
