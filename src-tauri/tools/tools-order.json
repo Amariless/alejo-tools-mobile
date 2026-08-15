@@ -10,5 +10,6 @@
   "PaletaColores":   60,
   "CreadorTexturas": 70,
   "GeneradorEscenas": 80,
+  "LectorPDF":       90,
   "Settings":        999
 }

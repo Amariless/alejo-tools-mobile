@@ -140,6 +140,30 @@ async function init() {
 
     renderToolList();
     showList();
+
+    // NUEVO (Lector de PDF, manejador por defecto): si la app se abrió
+    // porque el usuario tocó "Abrir con..." sobre un PDF en otra app,
+    // PdfBridge.pendingUri ya tiene la URI (ver MainActivity.kt) -- entra
+    // directo a esa herramienta en vez de mostrar la lista. Se consulta
+    // acá (una sola vez al arrancar) porque render() de LectorPDF también
+    // la revisa, pero solo se ejecuta si el usuario YA está parado en esa
+    // herramienta -- este chequeo cubre el caso real (app recién abierta
+    // desde otra app), goBack()/volver a entrar a mano no debería
+    // "reabrir" el mismo PDF de nuevo.
+    try {
+        const pendingUri = await invoke("pdf_take_pending_uri");
+        if (pendingUri) {
+            const pdfTool = tools.find(t => t.input === "lectorpdf");
+            if (pdfTool) {
+                // pdf_take_pending_uri() consume el valor (lo borra del
+                // lado Kotlin) -- guardarlo acá para que el propio
+                // render() de LectorPDF lo use en vez de volver a
+                // pedirlo (encontraría el valor ya vacío).
+                window._pendingPdfUri = pendingUri;
+                await selectTool(pdfTool);
+            }
+        }
+    } catch (e) { /* no-op -- no es Android, o no había nada pendiente */ }
 }
 
 // ── Pantalla de inicio: lista de herramientas ───────────

@@ -58,6 +58,31 @@
                 <!-- AndroidTV support -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+
+            <!-- NUEVO (Lector de PDF, manejador por defecto): registra la
+                 app como candidata al abrir un PDF desde otra app (un
+                 explorador de archivos, un navegador después de descargar
+                 uno, etc). Van DOS bloques de intent-filter separados
+                 porque distintas apps arman el Intent de formas distintas
+                 al compartir un PDF: unas ponen solo el mimeType (data
+                 vacío salvo el type), otras arman una URI content:// real
+                 con esquema y host. BROWSABLE hace falta para que
+                 funcione también al tocar un enlace directo a un .pdf
+                 desde un navegador. capturePdfIntent() en MainActivity.kt
+                 es quien realmente lee la URI que haya llegado por
+                 cualquiera de los dos caminos. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="application/pdf" />
+                <data android:scheme="file" android:mimeType="application/pdf" />
+            </intent-filter>
         </activity>
 
         <provider

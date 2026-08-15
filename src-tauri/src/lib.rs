@@ -32,6 +32,7 @@ mod downloader;
 mod expenses;
 mod installer;
 mod notes;
+mod pdf;
 mod pomodoro;
 mod scene_prompts;
 mod storage;
@@ -198,6 +199,14 @@ pub fn run() {
             // Generador de Escenas
             scene_prompts::scene_prompts_list,
             scene_prompts::scene_prompts_save_all,
+            // Lector de PDF
+            pdf::pdf_get_config,
+            pdf::pdf_set_config,
+            pdf::pdf_list_folder,
+            pdf::pdf_open,
+            pdf::pdf_render_page,
+            pdf::pdf_close,
+            pdf::pdf_take_pending_uri,
             // Auto-actualización por GitHub Releases
             update::check_for_update,
             update::download_and_install_update,
