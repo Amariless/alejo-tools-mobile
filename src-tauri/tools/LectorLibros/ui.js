@@ -10,12 +10,18 @@
 // la nota grande en epub.rs para el porqué. Quiere decir que si el mismo
 // libro se lee también en otro teléfono con esta app, el progreso NO se
 // comparte entre ellos todavía.
+// Estado de la sesión actual -- a nivel de módulo (no local a render()),
+// mismo motivo que en LectorPDF/ui.js: onLeave necesita poder cerrar la
+// sesión del libro abierto cuando el usuario sale con la flecha de
+// "volver" de la barra superior, sin depender de un botón propio.
+let S = null;
+
 registerRenderer("lectorlibros", {
     render(tool, area) {
         const root = el("div", { className: "bk-root" });
         area.appendChild(root);
 
-        const S = {
+        S = {
             view: "list", // list | reader
             folder: "",
             editingFolder: false,
@@ -38,7 +44,7 @@ registerRenderer("lectorlibros", {
 
         function fmtBytes(n) {
             if (!n && n !== 0) return "";
-            const units = ["B", "KB", "MB"];
+            const units = ["B", "KB", "MB", "GB"];
             let i = 0, v = n;
             while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
             return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
@@ -72,10 +78,21 @@ registerRenderer("lectorlibros", {
 
         function scheduleSaveProgress(contentEl) {
             if (S.saveTimer) clearTimeout(S.saveTimer);
+            // NUEVO (revisión de código, bug real): se toma una foto de
+            // bookPath/chapterIndex ACÁ, al programar el guardado, en vez
+            // de leerlos recién cuando el timeout dispara. Si el usuario
+            // sale de este libro y abre otro dentro de la ventana de
+            // 400ms, openBook() actualiza S.bookPath de inmediato pero
+            // S.chapterIndex sigue con el valor del libro viejo hasta que
+            // termina de cargar el primer capítulo del nuevo -- sin esta
+            // foto, el guardado viejo podía disparar en ese hueco y
+            // escribir el path del libro NUEVO con el capítulo del libro
+            // VIEJO, corrompiendo su progreso guardado.
+            const path = S.bookPath, chapterIndex = S.chapterIndex;
             S.saveTimer = setTimeout(() => {
                 const max = contentEl.scrollHeight - contentEl.clientHeight;
                 const frac = max > 0 ? contentEl.scrollTop / max : 0;
-                invoke("book_set_progress", { path: S.bookPath, chapterIndex: S.chapterIndex, scrollFraction: frac }).catch(() => {});
+                invoke("book_set_progress", { path, chapterIndex, scrollFraction: frac }).catch(() => {});
             }, 400);
         }
 
@@ -102,6 +119,7 @@ registerRenderer("lectorlibros", {
         }
 
         async function openBook(path) {
+            if (S.saveTimer) { clearTimeout(S.saveTimer); S.saveTimer = null; }
             S.error = "";
             try {
                 const res = await invoke("book_open", { path });
@@ -126,6 +144,7 @@ registerRenderer("lectorlibros", {
         }
 
         async function closeReader() {
+            if (S.saveTimer) { clearTimeout(S.saveTimer); S.saveTimer = null; }
             if (S.sessionId) { try { await invoke("book_close", { sessionId: S.sessionId }); } catch (e) { /* best effort */ } }
             S.sessionId = null;
             S.chapterHtml = "";
@@ -155,11 +174,11 @@ registerRenderer("lectorlibros", {
             root.appendChild(folderRow);
 
             if (S.hasStorageAccess === false) {
-                const permCard = el("div", { className: "bk-card sm-perm" });
+                const permCard = el("div", { className: "bk-card" });
                 permCard.innerHTML = `
                     <div>
-                        <div class="sm-status-title">Falta un permiso</div>
-                        <div class="sm-status-sub">Para leer libros guardados en el teléfono hace falta darle a Alejo Tools acceso a "Todos los archivos".</div>
+                        <div class="bk-status-title">Falta un permiso</div>
+                        <div class="bk-status-sub">Para leer libros guardados en el teléfono hace falta darle a Alejo Tools acceso a "Todos los archivos".</div>
                     </div>`;
                 const btn = el("button", { className: "primary", textContent: "Dar permiso" });
                 btn.onclick = async () => {
@@ -269,4 +288,11 @@ registerRenderer("lectorlibros", {
     },
     onOutput() {},
     onDone() {},
+    onLeave() {
+        if (S?.saveTimer) { clearTimeout(S.saveTimer); S.saveTimer = null; }
+        if (S?.sessionId) {
+            invoke("book_close", { sessionId: S.sessionId }).catch(() => {});
+            S.sessionId = null;
+        }
+    },
 });

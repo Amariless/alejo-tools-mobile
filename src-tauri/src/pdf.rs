@@ -224,6 +224,18 @@ pub async fn pdf_list_folder(app: AppHandle, folder: String) -> Result<Vec<serde
 
 #[tauri::command]
 pub async fn pdf_open(app: AppHandle, path_or_uri: String) -> Result<serde_json::Value, String> {
+    // NUEVO (revisión de código): a diferencia de pdf_list_folder, este
+    // comando aceptaba cualquier path/URI crudo desde IPC sin gate de
+    // permiso. Pero una URI content:// (el caso normal de "Abrir con...",
+    // ver MainActivity.kt/PdfBridge.kt) ya viene con su propio permiso de
+    // acceso otorgado por el Intent que la trajo -- exigir acá el permiso
+    // amplio de "Acceso a todos los archivos" rompería justo ese flujo para
+    // un usuario que nunca lo otorgó. Solo se exige para rutas de archivo
+    // crudas (las que vienen de listar la carpeta configurada), igual que
+    // pdf_list_folder.
+    if !path_or_uri.starts_with("content://") && !crate::storage::has_all_files_access(&app).await? {
+        return Err("Falta el permiso \"Acceso a todos los archivos\" -- pedilo desde Sincronización o en Ajustes del sistema.".to_string());
+    }
     let raw = call_pdf_bridge_open(&app, &path_or_uri).await?;
     let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| format!("Respuesta inesperada: {e}"))?;
     if v.get("ok").and_then(|b| b.as_bool()) != Some(true) {

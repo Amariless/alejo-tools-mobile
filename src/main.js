@@ -141,15 +141,29 @@ async function init() {
     renderToolList();
     showList();
 
-    // NUEVO (Lector de PDF, manejador por defecto): si la app se abrió
-    // porque el usuario tocó "Abrir con..." sobre un PDF en otra app,
-    // PdfBridge.pendingUri ya tiene la URI (ver MainActivity.kt) -- entra
-    // directo a esa herramienta en vez de mostrar la lista. Se consulta
-    // acá (una sola vez al arrancar) porque render() de LectorPDF también
-    // la revisa, pero solo se ejecuta si el usuario YA está parado en esa
-    // herramienta -- este chequeo cubre el caso real (app recién abierta
-    // desde otra app), goBack()/volver a entrar a mano no debería
-    // "reabrir" el mismo PDF de nuevo.
+    await checkPendingPdf();
+}
+
+// NUEVO (Lector de PDF, manejador por defecto): si la app se abrió porque
+// el usuario tocó "Abrir con..." sobre un PDF en otra app, PdfBridge.
+// pendingUri ya tiene la URI (ver MainActivity.kt) -- entra directo a esa
+// herramienta en vez de mostrar la lista. Se consulta acá porque render()
+// de LectorPDF también la revisa, pero solo se ejecuta si el usuario YA
+// está parado en esa herramienta -- esta función cubre el caso real (app
+// recién abierta, o RETOMADA, desde otra app); goBack()/volver a entrar a
+// mano no debería "reabrir" el mismo PDF de nuevo (pdf_take_pending_uri
+// consume el valor, así que una segunda llamada sin nada pendiente no hace
+// nada).
+//
+// NUEVO (revisión de código, bug real): se llama tanto desde init() (app
+// recién abierta, "cold start") como desde el listener de visibilitychange
+// más abajo (app YA corriendo en segundo plano y retomada via onNewIntent
+// -- launchMode="singleTask" reusa la Activity, lo cual en Android dispara
+// un ciclo hidden->visible del WebView pero NO pasa de nuevo por init()).
+// Sin ese segundo enganche, "Abrir con..." con la app ya abierta guardaba
+// la URI del lado Kotlin pero nunca navegaba a nada -- quedaba pendiente
+// hasta que el usuario entrara a mano a Lector de PDF.
+async function checkPendingPdf() {
     try {
         const pendingUri = await invoke("pdf_take_pending_uri");
         if (pendingUri) {
@@ -296,5 +310,9 @@ function defaultOut(line, stream, out) { appendLine(out, line, stream === "stder
 function defaultDone(label) { return (code, out) => { appendSeparator(out); appendLine(out, code === 0 ? "✓ Completado" : `✗ Código ${code}`, code === 0 ? "success" : "error"); resetBtn(label); }; }
 
 document.addEventListener("contextmenu", e => e.preventDefault());
+
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") checkPendingPdf();
+});
 
 window.addEventListener("DOMContentLoaded", init);

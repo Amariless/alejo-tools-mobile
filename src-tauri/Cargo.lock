@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "alejo-tools-mobile"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "futures-util",
  "jni 0.21.1",

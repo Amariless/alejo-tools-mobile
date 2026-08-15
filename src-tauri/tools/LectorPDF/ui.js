@@ -15,19 +15,21 @@
 // aparte, mucho más trabajo para un caso de uso que no era el pedido
 // principal).
 //
-// NUEVO -- limitación conocida: si el usuario sale del lector con la
-// flecha de "volver" de la barra superior (en vez de un botón propio),
-// la sesión de PdfRenderer abierta del lado Kotlin no se cierra explícito
-// (no hay un hook de "salgo de esta herramienta" expuesto por main.js
-// todavía) -- el recurso se libera solo cuando la app cierra el proceso.
-// Para no dejar sesiones acumulándose indefinidamente en un uso normal,
-// SÍ se cierra la sesión anterior cada vez que se abre un PDF nuevo.
+// Estado de la sesión actual -- a nivel de módulo (no local a render())
+// para que onLeave, más abajo, pueda cerrar la sesión de PdfRenderer
+// abierta del lado Kotlin cuando el usuario sale de la herramienta con la
+// flecha de "volver" de la barra superior (antes de este fix, ese camino
+// no cerraba nada -- el recurso quedaba abierto indefinidamente hasta que
+// la app cerraba el proceso; SÍ se seguía cerrando la sesión anterior al
+// abrir un PDF nuevo, pero eso no cubría "salir sin abrir otro PDF").
+let S = null;
+
 registerRenderer("lectorpdf", {
     render(tool, area) {
         const root = el("div", { className: "pdf-root" });
         area.appendChild(root);
 
-        const S = {
+        S = {
             view: "list", // list | reader
             folder: "",
             editingFolder: false,
@@ -97,7 +99,12 @@ registerRenderer("lectorpdf", {
                 S.sessionId = res.sessionId;
                 S.pageCount = res.pageCount;
                 S.pageIndex = 0;
-                S.currentName = name;
+                // NUEVO (revisión de código): para URIs content:// (el caso
+                // normal de "Abrir con...") PdfBridge.kt ahora devuelve el
+                // nombre real vía displayName -- el `name` recibido acá
+                // como parámetro (derivado del último segmento de la URI)
+                // solía ser un id opaco del proveedor, no el nombre real.
+                S.currentName = res.displayName || name;
                 S.view = "reader";
                 renderView();
                 await renderPageImage();
@@ -140,11 +147,11 @@ registerRenderer("lectorpdf", {
             root.appendChild(folderRow);
 
             if (S.hasStorageAccess === false) {
-                const permCard = el("div", { className: "pdf-card sm-perm" });
+                const permCard = el("div", { className: "pdf-card" });
                 permCard.innerHTML = `
                     <div>
-                        <div class="sm-status-title">Falta un permiso</div>
-                        <div class="sm-status-sub">Para leer PDFs guardados en el teléfono hace falta darle a Alejo Tools acceso a "Todos los archivos".</div>
+                        <div class="pdf-status-title">Falta un permiso</div>
+                        <div class="pdf-status-sub">Para leer PDFs guardados en el teléfono hace falta darle a Alejo Tools acceso a "Todos los archivos".</div>
                     </div>`;
                 const btn = el("button", { className: "primary", textContent: "Dar permiso" });
                 btn.onclick = async () => {
@@ -237,4 +244,10 @@ registerRenderer("lectorpdf", {
     },
     onOutput() {},
     onDone() {},
+    onLeave() {
+        if (S?.sessionId) {
+            invoke("pdf_close", { sessionId: S.sessionId }).catch(() => {});
+            S.sessionId = null;
+        }
+    },
 });

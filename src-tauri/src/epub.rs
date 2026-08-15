@@ -122,6 +122,36 @@ static HREF_ATTR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\bhref="([^"]+)""#
 static ITEMREF_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"<itemref\b[^>]*\bidref="([^"]+)""#).unwrap());
 static TITLE_RE: Lazy<Regex> = Lazy::new(|| RegexBuilder::new(r"<dc:title[^>]*>(.*?)</dc:title>").dot_matches_new_line(true).build().unwrap());
 
+/// Decodifica percent-encoding (RFC 3986) -- hand-rolled en vez de sumar una
+/// dependencia (percent-encoding/urlencoding) solo para esto, mismo criterio
+/// que base64_decode en textures.rs. NUEVO (bug real de la revisión de
+/// código): los href del manifest de un .opf son URIs y muchos generadores
+/// de epub (conversores Word->epub, web->epub) los percent-codifican cuando
+/// el nombre de archivo real tiene espacios o acentos -- ej.
+/// href="Cap%C3%ADtulo%201.xhtml" apuntando a un miembro del zip llamado
+/// literalmente "Capítulo 1.xhtml". Sin decodificar esto antes de buscar en
+/// el zip (zip.by_name hace match exacto de bytes), esos capítulos nunca se
+/// encontraban.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 3 <= bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
 fn zip_read_entry(zip: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Result<Vec<u8>, String> {
     let mut file = zip.by_name(name).map_err(|e| format!("No se encontró {name} dentro del epub: {e}"))?;
     let mut buf = Vec::new();
@@ -158,7 +188,7 @@ fn parse_epub(path: &str) -> Result<ParsedBook, String> {
     let container_str = String::from_utf8_lossy(&container);
     let opf_path = ROOTFILE_RE
         .captures(&container_str)
-        .map(|c| c[1].to_string())
+        .map(|c| percent_decode(&c[1]))
         .ok_or("container.xml no tiene un rootfile válido")?;
 
     let opf_bytes = zip_read_entry(&mut zip, &opf_path)?;
@@ -171,7 +201,7 @@ fn parse_epub(path: &str) -> Result<ParsedBook, String> {
     for m in ITEM_TAG_RE.find_iter(&opf_str) {
         let tag = m.as_str();
         let (Some(id), Some(href)) = (ID_ATTR_RE.captures(tag), HREF_ATTR_RE.captures(tag)) else { continue };
-        manifest.insert(id[1].to_string(), resolve_relative(&opf_dir, &href[1]));
+        manifest.insert(id[1].to_string(), resolve_relative(&opf_dir, &percent_decode(&href[1])));
     }
 
     let spine: Vec<String> = ITEMREF_RE
@@ -255,7 +285,14 @@ pub struct BookOpenResult {
 }
 
 #[tauri::command]
-pub fn book_open(path: String) -> Result<BookOpenResult, String> {
+pub async fn book_open(app: AppHandle, path: String) -> Result<BookOpenResult, String> {
+    // NUEVO (revisión de código): a diferencia de book_list_folder, este
+    // comando aceptaba cualquier ruta cruda desde IPC sin pasar por el
+    // gate de permiso -- lo alinea con el resto de los comandos que tocan
+    // storage compartido.
+    if !crate::storage::has_all_files_access(&app).await? {
+        return Err("Falta el permiso \"Acceso a todos los archivos\" -- pedilo desde Sincronización o en Ajustes del sistema.".to_string());
+    }
     let parsed = parse_epub(&path)?;
     let session_id = new_session_id();
     let chapter_count = parsed.spine.len();

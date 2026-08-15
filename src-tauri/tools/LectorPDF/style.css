@@ -56,7 +56,22 @@
 .pdf-item-name { font-weight: 600; font-size: .88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pdf-item-size { font-size: .74rem; color: var(--text-muted); margin-top: 2px; }
 
-.pdf-card.sm-perm { align-items: flex-start; }
+/* NUEVO (revisión de código): antes de esto la tarjeta de "falta permiso"
+   usaba clases (sm-status-title/sm-status-sub) que solo existen en
+   SyncManager/style.css -- como main.js solo inyecta el style.css de la
+   herramienta activa, acá se renderizaba sin estilos. */
+.pdf-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+}
+.pdf-status-title { font-weight: 700; font-size: .92rem; }
+.pdf-status-sub { font-size: .78rem; color: var(--text-muted); margin-top: 2px; }
 
 .pdf-reader-bar {
   display: flex;

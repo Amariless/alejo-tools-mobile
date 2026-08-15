@@ -78,7 +78,8 @@ object PdfBridge {
     @JvmStatic
     fun open(context: Context, pathOrUri: String): String {
         return try {
-            val pfd = if (pathOrUri.startsWith("content://")) {
+            val isContentUri = pathOrUri.startsWith("content://")
+            val pfd = if (isContentUri) {
                 context.contentResolver.openFileDescriptor(Uri.parse(pathOrUri), "r")
                     ?: throw IllegalStateException("No se pudo abrir el archivo")
             } else if (pathOrUri.startsWith("file://")) {
@@ -88,17 +89,47 @@ object PdfBridge {
             } else {
                 ParcelFileDescriptor.open(File(pathOrUri), ParcelFileDescriptor.MODE_READ_ONLY)
             }
-            val renderer = PdfRenderer(pfd)
+            // NUEVO (revisión de código, bug real): PdfRenderer(pfd) puede
+            // tirar (pdf corrupto/truncado, o un archivo que ni siquiera es
+            // un PDF llegado por "Abrir con..." desde otra app) -- antes de
+            // este fix, si eso pasaba, pfd quedaba huérfano (nunca agregado
+            // a `pfds` para poder cerrarlo, y el catch de más abajo tampoco
+            // lo tocaba), perdiendo un file descriptor nativo por cada
+            // intento fallido.
+            val renderer = try {
+                PdfRenderer(pfd)
+            } catch (e: Exception) {
+                try { pfd.close() } catch (_: Exception) { /* best effort */ }
+                throw e
+            }
             val sessionId = UUID.randomUUID().toString()
             sessions[sessionId] = renderer
             pfds[sessionId] = pfd
+            // NUEVO (revisión de código): nombre real del archivo para URIs
+            // content:// (el caso normal de "Abrir con...") -- el último
+            // segmento de esas URIs suele ser un id opaco del proveedor, no
+            // un nombre legible, así que el nombre real hay que pedírselo
+            // al ContentResolver.
+            val displayName = if (isContentUri) queryDisplayName(context, Uri.parse(pathOrUri)) else null
             val j = JSONObject()
             j.put("ok", true)
             j.put("sessionId", sessionId)
             j.put("pageCount", renderer.pageCount)
+            if (displayName != null) j.put("displayName", displayName)
             j.toString()
         } catch (e: Exception) {
             errorJson(e)
+        }
+    }
+
+    private fun queryDisplayName(context: Context, uri: Uri): String? {
+        return try {
+            context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 
