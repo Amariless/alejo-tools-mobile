@@ -141,43 +141,39 @@ async function init() {
     renderToolList();
     showList();
 
-    await checkPendingPdf();
+    await checkDeepLinks();
 }
 
-// NUEVO (Lector de PDF, manejador por defecto): si la app se abrió porque
-// el usuario tocó "Abrir con..." sobre un PDF en otra app, PdfBridge.
-// pendingUri ya tiene la URI (ver MainActivity.kt) -- entra directo a esa
-// herramienta en vez de mostrar la lista. Se consulta acá porque render()
-// de LectorPDF también la revisa, pero solo se ejecuta si el usuario YA
-// está parado en esa herramienta -- esta función cubre el caso real (app
-// recién abierta, o RETOMADA, desde otra app); goBack()/volver a entrar a
-// mano no debería "reabrir" el mismo PDF de nuevo (pdf_take_pending_uri
-// consume el valor, así que una segunda llamada sin nada pendiente no hace
-// nada).
+// ════════════════════════════════════════════════════════
+//  DEEP LINKS — mecanismo genérico para "esta app se abrió (o se retomó)
+//  por un motivo externo, entrá directo a tal herramienta en vez de
+//  mostrar la lista". Cualquier renderer puede sumarse definiendo
+//  checkDeepLink(): una función async que revisa si hay algo pendiente
+//  para SU herramienta (ej. una URI que llegó por "Abrir con...") y
+//  devuelve true si lo consumió y quiere que se navegue a ella.
 //
-// NUEVO (revisión de código, bug real): se llama tanto desde init() (app
-// recién abierta, "cold start") como desde el listener de visibilitychange
-// más abajo (app YA corriendo en segundo plano y retomada via onNewIntent
-// -- launchMode="singleTask" reusa la Activity, lo cual en Android dispara
-// un ciclo hidden->visible del WebView pero NO pasa de nuevo por init()).
-// Sin ese segundo enganche, "Abrir con..." con la app ya abierta guardaba
-// la URI del lado Kotlin pero nunca navegaba a nada -- quedaba pendiente
-// hasta que el usuario entrara a mano a Lector de PDF.
-async function checkPendingPdf() {
-    try {
-        const pendingUri = await invoke("pdf_take_pending_uri");
-        if (pendingUri) {
-            const pdfTool = tools.find(t => t.input === "lectorpdf");
-            if (pdfTool) {
-                // pdf_take_pending_uri() consume el valor (lo borra del
-                // lado Kotlin) -- guardarlo acá para que el propio
-                // render() de LectorPDF lo use en vez de volver a
-                // pedirlo (encontraría el valor ya vacío).
-                window._pendingPdfUri = pendingUri;
-                await selectTool(pdfTool);
-            }
-        }
-    } catch (e) { /* no-op -- no es Android, o no había nada pendiente */ }
+// NUEVO (revisión de código): esto reemplaza una versión anterior
+// hardcodeada solo para Lector de PDF (tools.find(t => t.input ===
+// "lectorpdf") + un global window._pendingPdfUri armado a mano acá
+// mismo) -- cualquier herramienta futura que necesite este mismo patrón
+// (ej. otro manejador de archivos por defecto) solo necesita definir su
+// propio checkDeepLink() en su ui.js, sin tocar main.js.
+//
+// Se llama tanto desde init() (app recién abierta, "cold start") como
+// desde el listener de visibilitychange más abajo (app YA corriendo en
+// segundo plano y retomada vía onNewIntent -- launchMode="singleTask"
+// reusa la Activity, lo cual en Android dispara un ciclo hidden->visible
+// del WebView pero NO pasa de nuevo por init()). Sin ese segundo
+// enganche, "Abrir con..." con la app ya abierta quedaba pendiente hasta
+// que el usuario entrara a mano a la herramienta correspondiente.
+async function checkDeepLinks() {
+    for (const tool of tools) {
+        const r = getRenderer(tool.input);
+        if (!r?.checkDeepLink) continue;
+        try {
+            if (await r.checkDeepLink()) { await selectTool(tool); return; }
+        } catch (e) { /* no-op -- este renderer no tenía nada pendiente */ }
+    }
 }
 
 // ── Pantalla de inicio: lista de herramientas ───────────
@@ -312,7 +308,7 @@ function defaultDone(label) { return (code, out) => { appendSeparator(out); appe
 document.addEventListener("contextmenu", e => e.preventDefault());
 
 document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") checkPendingPdf();
+    if (document.visibilityState === "visible") checkDeepLinks();
 });
 
 window.addEventListener("DOMContentLoaded", init);

@@ -221,13 +221,12 @@ registerRenderer("lectorpdf", {
 
             // Si la app se abrió (o se retomó) desde "Abrir con..." de otra
             // app, hay un PDF pendiente -- se abre directo, sin pasar por la
-            // lista de esta carpeta. main.js ya lo consumió una vez al
-            // arrancar (ver init() -- pdf_take_pending_uri() borra el valor
-            // del lado Kotlin al leerlo, así que solo se puede leer una
-            // vez) y lo dejó en window._pendingPdfUri para que lo usemos
-            // acá; si no hay nada ahí, se intenta el comando igual (cubre
-            // el caso de entrar a esta herramienta a mano sin pasar por
-            // ese flujo).
+            // lista de esta carpeta. checkDeepLink(), más abajo, ya lo
+            // consumió una vez (pdf_take_pending_uri() borra el valor del
+            // lado Kotlin al leerlo, así que solo se puede leer una vez) y
+            // lo dejó en window._pendingPdfUri para que lo usemos acá; si
+            // no hay nada ahí, se intenta el comando igual (cubre el caso
+            // de entrar a esta herramienta a mano sin pasar por ese flujo).
             let pendingUri = window._pendingPdfUri || "";
             window._pendingPdfUri = null;
             if (!pendingUri) {
@@ -249,5 +248,20 @@ registerRenderer("lectorpdf", {
             invoke("pdf_close", { sessionId: S.sessionId }).catch(() => {});
             S.sessionId = null;
         }
+    },
+    // NUEVO (revisión de código): antes esto vivía hardcodeado en
+    // main.js (buscando la herramienta por id "lectorpdf" a mano); ahora
+    // es el mecanismo genérico de deep-link (ver checkDeepLinks() en
+    // main.js) -- esta herramienta simplemente declara que tiene algo
+    // que revisar. pdf_take_pending_uri() consume el valor (lo borra
+    // del lado Kotlin), así que se guarda en window._pendingPdfUri para
+    // que el propio render(), más arriba, lo use en vez de volver a
+    // pedirlo (encontraría el valor ya vacío).
+    async checkDeepLink() {
+        try {
+            const pendingUri = await invoke("pdf_take_pending_uri");
+            if (pendingUri) { window._pendingPdfUri = pendingUri; return true; }
+        } catch (e) { /* no-op -- no es Android */ }
+        return false;
     },
 });

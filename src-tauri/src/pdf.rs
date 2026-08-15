@@ -57,43 +57,51 @@ pub fn pdf_set_config(app: AppHandle, folder: String) -> Result<(), String> {
 //  PUENTE JNI -- PdfBridge.kt
 // ══════════════════════════════════════════════════════════════════════════
 
+// NUEVO (revisión de código -- deduplicación): las funciones de este
+// archivo que llaman a un método estático de PdfBridge.kt vía JNI
+// compartían ~25 líneas idénticas (buscar la ventana, armar el canal
+// oneshot, with_webview + jni_handle().exec, find_class, mandar el
+// resultado por el canal, esperarlo) y solo diferían en qué argumentos
+// arman y cómo interpretan el valor de vuelta -- esa duplicación fue la
+// causa directa de los dos bugs de JNI reales que aparecieron en esta
+// misma sesión (uno en el armado de argumentos, otro en la firma de
+// renderPage). call_pdf_bridge() de acá abajo factoriza exactamente esa
+// parte común; cada llamada específica (más abajo) le pasa un closure con
+// SOLO la lógica que realmente cambia entre métodos: qué JValues arma y
+// cómo interpreta el valor de vuelta.
+//
+// El closure en sí (jni::objects::JValue, env.new_string, etc.) compila
+// en cualquier plataforma -- "jni" es una dependencia normal de Cargo.toml,
+// no gateada por target, son solo bindings de tipos sin necesitar una JVM
+// real para compilar. Lo único específico de Android es EJECUTAR el
+// closure (with_webview/jni_handle/find_class, que sí vienen de "wry",
+// gateada solo para Android en Cargo.toml) -- por eso solo call_pdf_bridge
+// necesita dos versiones (real / stub), no cada call site.
+//
+// La firma del closure (`&mut JNIEnv, JClass, &JObject` sin lifetimes
+// explícitos) copia tal cual la de `JniHandle::exec` en wry 0.55
+// (`FnOnce(&mut JNIEnv, &JObject, &JObject) + Send + 'static`, ver
+// wry::android::JniHandle) -- necesario para que el elision de lifetimes
+// de Rust trate esto como higher-ranked igual que el propio exec().
 #[cfg(target_os = "android")]
-async fn call_pdf_bridge_static_str(
-    app: &AppHandle,
-    method: &'static str,
-    sig: &'static str,
-    args_json: Vec<String>,
-) -> Result<String, String> {
-    use jni::objects::JValue;
+async fn call_pdf_bridge<T, F>(app: &AppHandle, build: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&mut jni::JNIEnv, jni::objects::JClass, &jni::objects::JObject) -> Result<T, String> + Send + 'static,
+{
     use tauri::Manager as _;
 
     let window = app.get_webview_window("main").ok_or("No se encontró la ventana principal")?;
-    let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<T, String>>();
 
     window
         .with_webview(move |webview| {
             let handle = webview.jni_handle();
             handle.exec(move |env, activity, _webview| {
-                let result = (|| -> Result<String, String> {
+                let result = (|| -> Result<T, String> {
                     let class = wry::prelude::find_class(env, activity, "com.alejo.toolsmobile.PdfBridge".to_string())
                         .map_err(|e| format!("No se encontró PdfBridge: {e}"))?;
-                    let jstrings: Vec<_> = args_json
-                        .iter()
-                        .map(|s| env.new_string(s).map_err(|e| e.to_string()))
-                        .collect::<Result<_, _>>()?;
-                    // NUEVO (bug real de compilación en el build de Android,
-                    // no lo detecta `cargo check` en Windows porque este
-                    // bloque es cfg(target_os = "android")): pasar
-                    // JValue::Object directo como puntero a función no
-                    // aplica auto-deref de &JString a &JObject -- envuelto
-                    // en closure sí, porque ahí es una llamada normal.
-                    let jvalues: Vec<JValue> = jstrings.iter().map(|s| JValue::Object(s)).collect();
-                    let ret_obj = env
-                        .call_static_method(class, method, sig, &jvalues)
-                        .and_then(|v| v.l())
-                        .map_err(|e| format!("Error llamando {method}: {e}"))?;
-                    let ret: String = env.get_string(&ret_obj.into()).map_err(|e| e.to_string())?.into();
-                    Ok(ret)
+                    build(env, class, activity)
                 })();
                 let _ = tx.send(result);
             });
@@ -104,109 +112,82 @@ async fn call_pdf_bridge_static_str(
 }
 
 #[cfg(not(target_os = "android"))]
-async fn call_pdf_bridge_static_str(
-    _app: &AppHandle,
-    _method: &'static str,
-    _sig: &'static str,
-    _args_json: Vec<String>,
-) -> Result<String, String> {
+async fn call_pdf_bridge<T, F>(_app: &AppHandle, _build: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&mut jni::JNIEnv, jni::objects::JClass, &jni::objects::JObject) -> Result<T, String> + Send + 'static,
+{
     Err("Lector de PDF solo está disponible en Android".to_string())
+}
+
+/// Extrae el String de vuelta de un método JNI que devuelve
+/// `Ljava/lang/String;` -- repetido en los 3 call sites de abajo que
+/// devuelven texto (a diferencia de "close", que devuelve void).
+fn jstring_result(env: &mut jni::JNIEnv, ret: Result<jni::objects::JValueOwned, jni::errors::Error>, ctx: &str) -> Result<String, String> {
+    let ret_obj = ret.and_then(|v| v.l()).map_err(|e| format!("{ctx}: {e}"))?;
+    Ok(env.get_string(&ret_obj.into()).map_err(|e| e.to_string())?.into())
+}
+
+async fn call_pdf_bridge_static_str(app: &AppHandle, method: &'static str, sig: &'static str, args_json: Vec<String>) -> Result<String, String> {
+    use jni::objects::JValue;
+    call_pdf_bridge(app, move |env, class, _activity| {
+        let jstrings: Vec<_> = args_json.iter().map(|s| env.new_string(s).map_err(|e| e.to_string())).collect::<Result<_, _>>()?;
+        // NUEVO (bug real de compilación en el build de Android, no lo
+        // detecta `cargo check` en Windows porque call_pdf_bridge (arriba)
+        // solo EJECUTA este closure del lado Android): pasar JValue::Object
+        // directo como puntero a función no aplica auto-deref de &JString
+        // a &JObject -- envuelto en closure sí, porque ahí es una llamada
+        // normal.
+        let jvalues: Vec<JValue> = jstrings.iter().map(|s| JValue::Object(s)).collect();
+        let ret = env.call_static_method(class, method, sig, &jvalues);
+        jstring_result(env, ret, &format!("Error llamando {method}"))
+    })
+    .await
 }
 
 // "open" necesita el Context de la Activity como primer argumento Java, a
 // diferencia del resto -- se llama aparte porque ese argumento no es un
 // String como los demás.
-#[cfg(target_os = "android")]
 async fn call_pdf_bridge_open(app: &AppHandle, path_or_uri: &str) -> Result<String, String> {
     use jni::objects::JValue;
-    use tauri::Manager as _;
-
-    let window = app.get_webview_window("main").ok_or("No se encontró la ventana principal")?;
-    let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
     let path_or_uri = path_or_uri.to_string();
-
-    window
-        .with_webview(move |webview| {
-            let handle = webview.jni_handle();
-            handle.exec(move |env, activity, _webview| {
-                let result = (|| -> Result<String, String> {
-                    let class = wry::prelude::find_class(env, activity, "com.alejo.toolsmobile.PdfBridge".to_string())
-                        .map_err(|e| format!("No se encontró PdfBridge: {e}"))?;
-                    let uri_j = env.new_string(&path_or_uri).map_err(|e| e.to_string())?;
-                    let ret_obj = env
-                        .call_static_method(
-                            class,
-                            "open",
-                            "(Landroid/content/Context;Ljava/lang/String;)Ljava/lang/String;",
-                            &[JValue::Object(activity), JValue::Object(&uri_j)],
-                        )
-                        .and_then(|v| v.l())
-                        .map_err(|e| format!("No se pudo abrir el PDF: {e}"))?;
-                    let ret: String = env.get_string(&ret_obj.into()).map_err(|e| e.to_string())?.into();
-                    Ok(ret)
-                })();
-                let _ = tx.send(result);
-            });
-        })
-        .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
-
-    rx.await.map_err(|_| "No se obtuvo respuesta".to_string())?
-}
-
-#[cfg(not(target_os = "android"))]
-async fn call_pdf_bridge_open(_app: &AppHandle, _path_or_uri: &str) -> Result<String, String> {
-    Err("Lector de PDF solo está disponible en Android".to_string())
+    call_pdf_bridge(app, move |env, class, activity| {
+        let uri_j = env.new_string(&path_or_uri).map_err(|e| e.to_string())?;
+        let ret = env.call_static_method(
+            class,
+            "open",
+            "(Landroid/content/Context;Ljava/lang/String;)Ljava/lang/String;",
+            &[JValue::Object(activity), JValue::Object(&uri_j)],
+        );
+        jstring_result(env, ret, "No se pudo abrir el PDF")
+    })
+    .await
 }
 
 // "renderPage" recibe (String, int, int) -- a diferencia del resto de los
-// métodos de PdfBridge, que son todos (String...) -- así que no puede
-// reusar call_pdf_bridge_static_str (arma todos los argumentos como
-// JString). NUEVO: bug real confirmado en vivo -- pasar los números como
-// JValue::Object(JString) contra una firma "(Ljava/lang/String;II)..."
-// tira "Invalid number or type of arguments passed to java method" porque
-// Java espera enteros primitivos (I), no objetos String, en esa posición.
-#[cfg(target_os = "android")]
+// métodos de PdfBridge, que son todos (String...) -- así que arma sus
+// propios JValue en vez de reusar call_pdf_bridge_static_str (que asume
+// todos los argumentos son JString). NUEVO: bug real confirmado en
+// vivo -- pasar los números como JValue::Object(JString) contra una
+// firma "(Ljava/lang/String;II)..." tira "Invalid number or type of
+// arguments passed to java method" porque Java espera enteros primitivos
+// (I), no objetos String, en esa posición.
 async fn call_pdf_bridge_render_page(app: &AppHandle, session_id: &str, page_index: u32, max_width: u32) -> Result<String, String> {
     use jni::objects::JValue;
-    use tauri::Manager as _;
-
-    let window = app.get_webview_window("main").ok_or("No se encontró la ventana principal")?;
-    let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
     let session_id = session_id.to_string();
     let page_index = page_index as i32;
     let max_width = max_width as i32;
-
-    window
-        .with_webview(move |webview| {
-            let handle = webview.jni_handle();
-            handle.exec(move |env, activity, _webview| {
-                let result = (|| -> Result<String, String> {
-                    let class = wry::prelude::find_class(env, activity, "com.alejo.toolsmobile.PdfBridge".to_string())
-                        .map_err(|e| format!("No se encontró PdfBridge: {e}"))?;
-                    let sid_j = env.new_string(&session_id).map_err(|e| e.to_string())?;
-                    let ret_obj = env
-                        .call_static_method(
-                            class,
-                            "renderPage",
-                            "(Ljava/lang/String;II)Ljava/lang/String;",
-                            &[JValue::Object(&sid_j), JValue::Int(page_index), JValue::Int(max_width)],
-                        )
-                        .and_then(|v| v.l())
-                        .map_err(|e| format!("Error llamando renderPage: {e}"))?;
-                    let ret: String = env.get_string(&ret_obj.into()).map_err(|e| e.to_string())?.into();
-                    Ok(ret)
-                })();
-                let _ = tx.send(result);
-            });
-        })
-        .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
-
-    rx.await.map_err(|_| "No se obtuvo respuesta".to_string())?
-}
-
-#[cfg(not(target_os = "android"))]
-async fn call_pdf_bridge_render_page(_app: &AppHandle, _session_id: &str, _page_index: u32, _max_width: u32) -> Result<String, String> {
-    Err("Lector de PDF solo está disponible en Android".to_string())
+    call_pdf_bridge(app, move |env, class, _activity| {
+        let sid_j = env.new_string(&session_id).map_err(|e| e.to_string())?;
+        let ret = env.call_static_method(
+            class,
+            "renderPage",
+            "(Ljava/lang/String;II)Ljava/lang/String;",
+            &[JValue::Object(&sid_j), JValue::Int(page_index), JValue::Int(max_width)],
+        );
+        jstring_result(env, ret, "Error llamando renderPage")
+    })
+    .await
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -265,38 +246,30 @@ pub async fn pdf_close(app: AppHandle, session_id: String) -> Result<(), String>
     close_impl(&app, &session_id).await
 }
 
-#[cfg(target_os = "android")]
 async fn close_impl(app: &AppHandle, session_id: &str) -> Result<(), String> {
     use jni::objects::JValue;
-    use tauri::Manager as _;
-
-    let window = app.get_webview_window("main").ok_or("No se encontró la ventana principal")?;
-    let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
     let session_id = session_id.to_string();
-
-    window
-        .with_webview(move |webview| {
-            let handle = webview.jni_handle();
-            handle.exec(move |env, activity, _webview| {
-                let result = (|| -> Result<(), String> {
-                    let class = wry::prelude::find_class(env, activity, "com.alejo.toolsmobile.PdfBridge".to_string())
-                        .map_err(|e| format!("No se encontró PdfBridge: {e}"))?;
-                    let sid_j = env.new_string(&session_id).map_err(|e| e.to_string())?;
-                    env.call_static_method(class, "close", "(Ljava/lang/String;)V", &[JValue::Object(&sid_j)])
-                        .map_err(|e| format!("No se pudo cerrar el PDF: {e}"))?;
-                    Ok(())
-                })();
-                let _ = tx.send(result);
-            });
-        })
-        .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
-
-    rx.await.map_err(|_| "No se obtuvo respuesta".to_string())?
-}
-
-#[cfg(not(target_os = "android"))]
-async fn close_impl(_app: &AppHandle, _session_id: &str) -> Result<(), String> {
-    Ok(())
+    let result = call_pdf_bridge(app, move |env, class, _activity| {
+        let sid_j = env.new_string(&session_id).map_err(|e| e.to_string())?;
+        env.call_static_method(class, "close", "(Ljava/lang/String;)V", &[JValue::Object(&sid_j)])
+            .map_err(|e| format!("No se pudo cerrar el PDF: {e}"))?;
+        Ok(())
+    })
+    .await;
+    // A diferencia de las demás llamadas, "cerrar algo que nunca se abrió"
+    // fuera de Android (call_pdf_bridge ahí es el stub que siempre
+    // devuelve Err) no debería ser un error real -- pero solo ahí: un
+    // Err real del lado Android (el close en sí falló) sí se propaga
+    // igual que antes.
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = result;
+        Ok(())
+    }
+    #[cfg(target_os = "android")]
+    {
+        result
+    }
 }
 
 #[tauri::command]
