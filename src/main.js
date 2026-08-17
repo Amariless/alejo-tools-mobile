@@ -116,10 +116,54 @@ window._toolCtx = {
     // Lista" propio debe llamar a history.back() en vez de cerrar la
     // sub-vista directo, igual que hace acá el botón de la app-bar.
     pushBack,
+    // pickFolder: abre el selector de carpeta nativo de Android y
+    // devuelve la ruta elegida (o null si el usuario canceló, o si la
+    // carpeta elegida no se pudo resolver a una ruta cruda -- ver
+    // MainActivity.kt). Pedido explícito del usuario: elegir carpetas
+    // desde un picker nativo en vez de escribir la ruta a mano.
+    pickFolder,
+    checkPendingFolderPick,
     get activeTool()    { return activeTool; },
     get toolOutput()    { return toolOutput; },
     get toolInputArea() { return toolInputArea; },
 };
+
+// NUEVO -- bug real confirmado en vivo: abrir el picker nativo de
+// carpetas (una Activity/proceso aparte, DocumentsUI) puede hacer que
+// Android mate el proceso de esta app en segundo plano mientras el
+// picker está al frente (memoria) -- el polling de acá abajo se corta
+// junto con el resto del JS cuando eso pasa, aunque el resultado SÍ le
+// llegó al lado Kotlin. Por eso "key" identifica para qué configuración
+// era el pedido: quien use pickFolder() no debería asumir que esta
+// promesa siempre resuelve -- ver checkPendingFolderPick(), que revisa
+// (sin haber pedido nada) si quedó un resultado pendiente de una sesión
+// anterior, para las pantallas que muestren configuraciones de carpeta.
+async function pickFolder(key) {
+    try { await invoke("pick_folder_start", { key }); } catch (e) { return null; }
+    // Polling simple: el usuario puede tardar bastante navegando el
+    // picker del sistema, así que se espera hasta 3 minutos antes de
+    // rendirse (no debería pasar en un uso normal).
+    for (let i = 0; i < 900; i++) {
+        await new Promise(r => setTimeout(r, 200));
+        const res = await checkPendingFolderPick();
+        if (res) return res.path || null;
+    }
+    return null;
+}
+
+// Consulta si quedó un resultado de selector de carpeta pendiente --
+// tanto para el polling normal de pickFolder() como para revisarlo de
+// entrada al abrir una pantalla con configuraciones de carpeta (cubre el
+// caso del proceso reiniciado a mitad del picker, ver nota arriba).
+// Devuelve null si no hay nada listo todavía.
+async function checkPendingFolderPick() {
+    try {
+        const res = await invoke("pick_folder_poll");
+        return res && res.ready ? res : null;
+    } catch (e) {
+        return null;
+    }
+}
 
 // ── text (fallback genérico) ────────────────────────────
 registerRenderer("text", {

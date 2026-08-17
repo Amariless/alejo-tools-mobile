@@ -31,6 +31,7 @@ use serde::{Deserialize, Serialize};
 mod downloader;
 mod epub;
 mod expenses;
+mod folder_picker;
 mod installer;
 mod notes;
 mod pdf;
@@ -189,6 +190,12 @@ pub fn run() {
             // Descargar Música (yt-dlp vía youtubedl-android)
             downloader::dl_fetch_info,
             downloader::dl_download,
+            downloader::dl_get_config,
+            downloader::dl_set_config,
+            // Selector de carpeta nativo (Settings, y cualquier
+            // herramienta que necesite elegir una carpeta)
+            folder_picker::pick_folder_start,
+            folder_picker::pick_folder_poll,
             // Pomodoro
             pomodoro::pomodoro_get_config,
             pomodoro::pomodoro_set_config,

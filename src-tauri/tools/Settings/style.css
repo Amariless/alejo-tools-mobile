@@ -21,20 +21,30 @@
   color: var(--text-muted);
 }
 
-.st-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.st-folder-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.st-list li {
+.st-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: var(--surface-alt);
   border-radius: 10px;
   padding: 10px 12px;
-  font-size: .88rem;
 }
+.st-folder-info { flex: 1; min-width: 0; }
+.st-folder-label { font-size: .88rem; font-weight: 600; }
+.st-folder-path {
+  margin-top: 2px;
+  font-size: .74rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st-folder-btn { flex: 0 0 auto; }
 
 .st-version {
   font-family: monospace;

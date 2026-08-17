@@ -28,8 +28,8 @@ use std::path::PathBuf;
 
 use once_cell::sync::Lazy;
 use regex::{Regex, RegexBuilder};
-use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, Manager};
 
 // ══════════════════════════════════════════════════════════════════════════
 //  LIMPIEZA DE TÍTULO (portado 1:1 de downloader.rs de escritorio)
@@ -202,8 +202,44 @@ fn detect_platform(url: &str) -> String {
 //  compartido primario prácticamente siempre.
 // ══════════════════════════════════════════════════════════════════════════
 
-fn music_dir() -> PathBuf {
-    PathBuf::from("/storage/emulated/0/Music/AlejoTools")
+// NUEVO (config de carpeta de descarga, pedido del usuario): antes la
+// carpeta de destino estaba hardcodeada -- ahora es elegible desde
+// Configuración (selector de carpeta nativo, ver folder_picker.rs) y
+// persistida acá, mismo patrón que PdfConfig en pdf.rs.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloaderConfig {
+    pub folder: String,
+}
+
+impl Default for DownloaderConfig {
+    fn default() -> Self {
+        Self { folder: "/storage/emulated/0/Music/AlejoTools".to_string() }
+    }
+}
+
+fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("downloader_config.json"))
+}
+
+#[tauri::command]
+pub fn dl_get_config(app: AppHandle) -> DownloaderConfig {
+    let Ok(path) = config_path(&app) else { return DownloaderConfig::default() };
+    std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn dl_set_config(app: AppHandle, folder: String) -> Result<(), String> {
+    let path = config_path(&app)?;
+    let cfg = DownloaderConfig { folder: folder.trim().to_string() };
+    let s = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+    std::fs::write(&path, s).map_err(|e| e.to_string())
+}
+
+fn music_dir(app: &AppHandle) -> PathBuf {
+    PathBuf::from(dl_get_config(app.clone()).folder)
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -431,7 +467,7 @@ pub async fn dl_download(app: AppHandle, url: String, title: String, artist: Str
         return Err("Falta el permiso \"Acceso a todos los archivos\" -- pedilo desde Sincronización o en Ajustes del sistema.".to_string());
     }
 
-    let dir = music_dir();
+    let dir = music_dir(&app);
     tokio::fs::create_dir_all(&dir).await.map_err(|e| format!("No se pudo crear la carpeta de destino: {e}"))?;
 
     let base_name = if !artist.trim().is_empty() {
