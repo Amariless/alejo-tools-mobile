@@ -1,6 +1,0 @@
-{
-  "name": "Lector de Libros",
-  "description": "Leer EPUB guardados en el teléfono, con progreso de lectura",
-  "input": "lectorlibros",
-  "persistent": false
-}

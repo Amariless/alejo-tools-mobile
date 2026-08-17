@@ -1,6 +1,0 @@
-{
-  "name": "Pomodoro",
-  "description": "Temporizador de trabajo y descansos",
-  "input": "pomodoro",
-  "persistent": true
-}

@@ -1,0 +1,6 @@
+{
+  "name": "Lector de Documentos",
+  "description": "PDF y libros (EPUB), en un solo lector",
+  "input": "lectordocs",
+  "persistent": false
+}

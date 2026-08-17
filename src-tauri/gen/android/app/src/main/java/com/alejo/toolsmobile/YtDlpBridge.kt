@@ -55,12 +55,30 @@ object YtDlpBridge {
     @Volatile
     private var initialized = false
 
+    // FIX (error real reportado por el usuario -- yt-dlp empaquetado
+    // "older than 90 days"): el yt-dlp que trae el .aar de youtubedl-android
+    // queda congelado a la versión que existía cuando se compiló esta app --
+    // YouTube cambia su cifrado de firmas seguido, así que un yt-dlp viejo
+    // eventualmente deja de poder extraer video/audio y el propio yt-dlp lo
+    // reporta como error (no es un bug nuestro, es el mismo aviso que
+    // soluciona `yt-dlp --update` en escritorio). La librería expone el
+    // equivalente ("updateYoutubeDL", pega contra los releases de yt-dlp en
+    // GitHub y reemplaza el .zip empaquetado si hay uno más nuevo) -- se
+    // llama acá, una vez por proceso igual que init(), ANTES de la primera
+    // búsqueda/descarga real. Si falla (sin red, GitHub caído, etc.) se
+    // ignora a propósito: seguimos con la versión empaquetada en el APK en
+    // vez de romper el flujo por no poder actualizar.
     private fun ensureInit(context: Context) {
         if (initialized) return
         synchronized(this) {
             if (initialized) return
             YoutubeDL.getInstance().init(context)
             FFmpeg.getInstance().init(context)
+            try {
+                YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.STABLE)
+            } catch (e: Exception) {
+                // Sin red o falló el chequeo de versión -- no es fatal.
+            }
             initialized = true
         }
     }

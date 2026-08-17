@@ -17,6 +17,14 @@
 // atardecer podría devolver 6 variantes casi idénticas de naranja en vez de
 // una paleta variada). Ese umbral de distancia se relaja de a poco si no
 // alcanzan colores suficientemente distintos.
+//
+// NUEVO (pedido del usuario): cada color seleccionado recuerda de qué
+// "cubo" del histograma cuantizado salió (bucket.key) -- "Ver origen"
+// reconstruye la miniatura ya procesada (S.imageData) oscureciendo todo
+// pixel que NO cayó en ese cubo, para que salte a la vista en qué parte de
+// la foto está ese color. También se puede copiar la paleta entera como
+// lista de texto (un hex por línea) en vez de tener que tocar color por
+// color.
 registerRenderer("paletacolores", {
     render(tool, area) {
         const root = el("div", { className: "pc-root" });
@@ -28,7 +36,15 @@ registerRenderer("paletacolores", {
             count: 6,
             palette: [],
             copiedHex: null,
+            copiedList: false,
+            originKey: null, // bucket.key del color cuyo origen se está mostrando, o null
         };
+
+        const BITS = 4; // 16 niveles por canal -- mismo valor usado al extraer y al resaltar origen
+        const SHIFT = 8 - BITS;
+        function bucketKey(r, g, b) {
+            return ((r >> SHIFT) << (BITS * 2)) | ((g >> SHIFT) << BITS) | (b >> SHIFT);
+        }
 
         function rgbToHex(r, g, b) {
             return "#" + [r, g, b].map(v => v.toString(16).padStart(2, "0")).join("");
@@ -41,18 +57,17 @@ registerRenderer("paletacolores", {
 
         function extractPalette(imageData, k) {
             const data = imageData.data;
-            const BITS = 4; // 16 niveles por canal -- suficiente para agrupar sin perder variedad real
-            const shift = 8 - BITS;
             const buckets = new Map();
             for (let i = 0; i < data.length; i += 4) {
                 if (data[i + 3] < 128) continue; // píxeles transparentes, no cuentan
                 const r = data[i], g = data[i + 1], b = data[i + 2];
-                const key = ((r >> shift) << (BITS * 2)) | ((g >> shift) << BITS) | (b >> shift);
+                const key = bucketKey(r, g, b);
                 let bucket = buckets.get(key);
-                if (!bucket) { bucket = { count: 0, r: 0, g: 0, b: 0 }; buckets.set(key, bucket); }
+                if (!bucket) { bucket = { key, count: 0, r: 0, g: 0, b: 0 }; buckets.set(key, bucket); }
                 bucket.count++; bucket.r += r; bucket.g += g; bucket.b += b;
             }
             const list = Array.from(buckets.values()).map(b => ({
+                key: b.key,
                 count: b.count,
                 r: Math.round(b.r / b.count), g: Math.round(b.g / b.count), b: Math.round(b.b / b.count),
             }));
@@ -75,6 +90,27 @@ registerRenderer("paletacolores", {
             return selected.slice(0, k);
         }
 
+        // Reconstruye la miniatura procesada oscureciendo todo lo que NO
+        // pertenece al cubo `key` -- así se ve de un vistazo qué parte de la
+        // foto generó ese color exacto de la paleta.
+        function buildOriginDataUrl(key) {
+            const { width, height, data } = S.imageData;
+            const canvas = document.createElement("canvas");
+            canvas.width = width; canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            const out = ctx.createImageData(width, height);
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+                if (bucketKey(r, g, b) === key) {
+                    out.data[i] = r; out.data[i + 1] = g; out.data[i + 2] = b; out.data[i + 3] = a;
+                } else {
+                    out.data[i] = r * 0.15; out.data[i + 1] = g * 0.15; out.data[i + 2] = b * 0.15; out.data[i + 3] = a;
+                }
+            }
+            ctx.putImageData(out, 0, 0);
+            return canvas.toDataURL("image/png");
+        }
+
         function loadFile(file) {
             if (!file) return;
             const url = URL.createObjectURL(file);
@@ -82,6 +118,7 @@ registerRenderer("paletacolores", {
             img.onload = () => {
                 if (S.imageUrl) URL.revokeObjectURL(S.imageUrl);
                 S.imageUrl = url;
+                S.originKey = null;
 
                 // Reducir a como mucho 220px de lado más largo antes de leer
                 // los píxeles -- procesar una foto de 12MP entera no aporta
@@ -103,6 +140,7 @@ registerRenderer("paletacolores", {
 
         function reextract() {
             if (!S.imageData) return;
+            S.originKey = null;
             S.palette = extractPalette(S.imageData, S.count);
             renderView();
         }
@@ -114,18 +152,28 @@ registerRenderer("paletacolores", {
             setTimeout(() => { if (S.copiedHex === hex) { S.copiedHex = null; renderView(); } }, 1200);
         }
 
+        async function copyList() {
+            const text = S.palette.map(c => rgbToHex(c.r, c.g, c.b)).join("\n");
+            try { await navigator.clipboard.writeText(text); } catch (e) { /* sin clipboard, no es grave */ }
+            S.copiedList = true;
+            renderView();
+            setTimeout(() => { S.copiedList = false; renderView(); }, 1200);
+        }
+
         function renderView() {
             root.innerHTML = "";
 
             const pickRow = el("div", { className: "pc-pick-row" });
             const cameraInp = el("input", { type: "file", accept: "image/*", capture: "environment", className: "pc-hidden-input" });
             cameraInp.onchange = (e) => loadFile(e.target.files[0]);
-            const cameraBtn = el("button", { className: "primary", textContent: "📷 Tomar foto" });
+            const cameraBtn = el("button", { className: "primary pc-pick-btn" });
+            cameraBtn.innerHTML = `${window.AlejoIcons.glyph("camera", 18)}<span>Tomar foto</span>`;
             cameraBtn.onclick = () => cameraInp.click();
 
             const galleryInp = el("input", { type: "file", accept: "image/*", className: "pc-hidden-input" });
             galleryInp.onchange = (e) => loadFile(e.target.files[0]);
-            const galleryBtn = el("button", { textContent: "🖼️ Elegir de galería" });
+            const galleryBtn = el("button", { className: "pc-pick-btn" });
+            galleryBtn.innerHTML = `${window.AlejoIcons.glyph("image", 18)}<span>Elegir de galería</span>`;
             galleryBtn.onclick = () => galleryInp.click();
 
             pickRow.append(cameraInp, cameraBtn, galleryInp, galleryBtn);
@@ -136,7 +184,20 @@ registerRenderer("paletacolores", {
                 return;
             }
 
-            root.appendChild(el("img", { className: "pc-preview", src: S.imageUrl }));
+            const originColor = S.originKey != null ? S.palette.find(c => c.key === S.originKey) : null;
+            if (originColor) {
+                const wrap = el("div", { className: "pc-origin-wrap" });
+                wrap.appendChild(el("img", { className: "pc-preview pc-preview--origin", src: buildOriginDataUrl(S.originKey) }));
+                const hint = el("div", { className: "pc-origin-hint" });
+                hint.innerHTML = `<span>La zona resaltada es de dónde salió ${rgbToHex(originColor.r, originColor.g, originColor.b)}</span>`;
+                const closeBtn = el("button", { textContent: "Volver a la foto completa" });
+                closeBtn.onclick = () => { S.originKey = null; renderView(); };
+                hint.appendChild(closeBtn);
+                wrap.appendChild(hint);
+                root.appendChild(wrap);
+            } else {
+                root.appendChild(el("img", { className: "pc-preview", src: S.imageUrl }));
+            }
 
             const sliderRow = el("div", { className: "pc-slider-row" });
             const sliderLabel = el("label", { textContent: `Detalle de la paleta: ${S.count} colores` });
@@ -157,17 +218,41 @@ registerRenderer("paletacolores", {
             sliderRow.appendChild(slider);
             root.appendChild(sliderRow);
 
-            const swatches = el("div", { className: "pc-swatches" });
+            const listHeader = el("div", { className: "pc-list-header" });
+            listHeader.appendChild(el("span", { textContent: "Paleta" }));
+            const copyListBtn = el("button", { className: "pc-copy-list-btn" });
+            copyListBtn.innerHTML = S.copiedList
+                ? `${window.AlejoIcons.glyph("check", 15)}<span>Lista copiada</span>`
+                : `${window.AlejoIcons.glyph("copy", 15)}<span>Copiar lista</span>`;
+            copyListBtn.onclick = copyList;
+            listHeader.appendChild(copyListBtn);
+            root.appendChild(listHeader);
+
+            // Lista de filas (en vez de una grilla de cuadrados chicos con
+            // texto apretado adentro) -- pedido del usuario: "más intuitivo
+            // de leer". Cada fila: pastilla de color + hex + rgb, tocar la
+            // fila copia el hex, un botón aparte muestra de dónde salió.
+            const swatches = el("div", { className: "pc-swatch-list" });
             S.palette.forEach(c => {
                 const hex = rgbToHex(c.r, c.g, c.b);
-                const sw = el("button", { className: "pc-swatch" });
-                sw.style.background = hex;
-                sw.onclick = () => copyHex(hex);
-                sw.innerHTML = `<span class="pc-swatch-hex">${S.copiedHex === hex ? "Copiado ✓" : hex}</span>`;
-                // Contraste simple para que el texto se lea sobre cualquier color.
-                const luminance = (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255;
-                sw.classList.add(luminance > 0.6 ? "pc-swatch--dark-text" : "pc-swatch--light-text");
-                swatches.appendChild(sw);
+                const row = el("div", { className: "pc-swatch-row" });
+                const dot = el("span", { className: "pc-swatch-dot" });
+                dot.style.background = hex;
+                const text = el("div", { className: "pc-swatch-text" });
+                text.innerHTML = `<div class="pc-swatch-hex">${hex}</div><div class="pc-swatch-rgb">rgb(${c.r}, ${c.g}, ${c.b})</div>`;
+
+                const copyBtn = el("button", { className: "pc-swatch-copy" });
+                copyBtn.innerHTML = S.copiedHex === hex ? window.AlejoIcons.glyph("check", 17) : window.AlejoIcons.glyph("copy", 17);
+                copyBtn.onclick = (e) => { e.stopPropagation(); copyHex(hex); };
+
+                const originBtn = el("button", { className: `pc-swatch-origin${S.originKey === c.key ? " pc-swatch-origin--active" : ""}` });
+                originBtn.innerHTML = window.AlejoIcons.glyph("eye", 17);
+                originBtn.title = "Ver de dónde salió este color";
+                originBtn.onclick = (e) => { e.stopPropagation(); S.originKey = S.originKey === c.key ? null : c.key; renderView(); };
+
+                row.append(dot, text, originBtn, copyBtn);
+                row.onclick = () => copyHex(hex);
+                swatches.appendChild(row);
             });
             root.appendChild(swatches);
         }

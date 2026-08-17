@@ -17,15 +17,12 @@ const TOOL_ICON_COLORS = {
     syncmanager:      "#3b82f6", // azul
     descargarmusica:  "#ec4899", // rosa
     reloj:            "#f59e0b", // ámbar
-    pomodoro:         "#f59e0b", // ámbar -- alias hasta que se renombre a "reloj" (ver tarea pendiente)
     ideasrapidas:     "#eab308", // amarillo
     gastos:           "#22c55e", // verde
     paletacolores:    "#a855f7", // violeta
     creadortexturas:  "#f97316", // naranja
     scene:            "#6366f1", // índigo
     lectordocs:       "#0ea5e9", // celeste
-    lectorpdf:        "#0ea5e9", // celeste -- alias hasta fusionarse con lectordocs
-    lectorlibros:     "#0ea5e9", // celeste -- alias hasta fusionarse con lectordocs
     settings:         "#64748b", // gris pizarra
 };
 
@@ -56,6 +53,21 @@ const GLYPHS = {
     copy: `<rect x="8.3" y="8.3" width="12.2" height="12.2" rx="1.8" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M15.7 8.3V5.5a1.8 1.8 0 0 0-1.8-1.8H5.5a1.8 1.8 0 0 0-1.8 1.8v8.4a1.8 1.8 0 0 0 1.8 1.8h2.8" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" fill="none"/>`,
     edit: `<path d="M4 20l.9-4L16 4.9a1.8 1.8 0 0 1 2.5 0l.6.6a1.8 1.8 0 0 1 0 2.5L8 19.1z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><path d="M14.3 6.6l3.1 3.1" stroke="currentColor" stroke-width="1.8"/>`,
     info: `<circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 11v5.3" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="8" r="1.05" fill="currentColor"/>`,
+    // Clima (Reloj -- pestaña "Clima"): dibujados a mano como el resto del
+    // set, sin depender de ningún ícono bajado de internet -- a diferencia
+    // de los íconos de modo de lectura (ver LectorDocs/icons.js), estos no
+    // necesitan más detalle que un pictograma simple.
+    wxSun: `<circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 3v2.2M12 18.8V21M21 12h-2.2M5.2 12H3M18.4 5.6l-1.6 1.6M7.2 17.2l-1.6 1.6M18.4 18.4l-1.6-1.6M7.2 6.8 5.6 5.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
+    wxCloud: `<path d="M7 18.5a4.2 4.2 0 0 1-.6-8.36 5.4 5.4 0 0 1 10.4-1.9A4.35 4.35 0 0 1 17.5 18.5H7Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/>`,
+    wxCloudSun: `<circle cx="8.6" cy="7.4" r="2.7" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M8.6 3.3v1.3M8.6 12.2v.5M13 7.4h-1.3M4.6 7.4h-.9M11.5 4.5l-.9.9M6.5 9.3l-.9.9M11.5 10.3l-.9-.9M6.5 5.5l-.9-.9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M9.5 19.5a4 4 0 0 1-.5-7.97 5.1 5.1 0 0 1 9.83-1.53A4.1 4.1 0 0 1 18.5 19.5h-9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/>`,
+    wxFog: `<path d="M6.5 14.5a3.6 3.6 0 0 1-.4-7.18A4.6 4.6 0 0 1 15 5.65 3.7 3.7 0 0 1 16 13" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/><path d="M4 16.5h16M4 19.5h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`,
+    wxRain: `<path d="M7 13.5a4.2 4.2 0 0 1-.6-8.36 5.4 5.4 0 0 1 10.4-1.9A4.35 4.35 0 0 1 17.5 13.5H7Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><path d="M8.5 16.5 7.2 19.8M13 16.5l-1.3 3.3M17.5 16.5l-1.3 3.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`,
+    wxSnow: `<path d="M7 13.5a4.2 4.2 0 0 1-.6-8.36 5.4 5.4 0 0 1 10.4-1.9A4.35 4.35 0 0 1 17.5 13.5H7Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><path d="M9 17v3.4M9 17l-1.6 1M9 17l1.6 1M9 20.4l-1.6-1M9 20.4l1.6-1M15 17v3.4M15 17l-1.6 1M15 17l1.6 1M15 20.4l-1.6-1M15 20.4l1.6-1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>`,
+    wxStorm: `<path d="M7 12.5a4.2 4.2 0 0 1-.6-8.36 5.4 5.4 0 0 1 10.4-1.9A4.35 4.35 0 0 1 17.5 12.5H7Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><path d="M13 14.5 10 19h3l-1.6 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
+    eye: `<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" fill="none"/><circle cx="12" cy="12" r="2.6" stroke="currentColor" stroke-width="1.7" fill="none"/>`,
+    camera: `<rect x="3" y="7" width="18" height="13" rx="2.2" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M8.3 7 9.6 4.6h4.8L15.7 7" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><circle cx="12" cy="13.5" r="3.6" stroke="currentColor" stroke-width="1.8" fill="none"/>`,
+    image: `<rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/><circle cx="8.3" cy="9.3" r="1.7" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M4 17.5 9 12l3.5 3.5L15.5 12 20 16.5" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round" fill="none"/>`,
+    check: `<path d="M4.5 12.5 9.5 17.5 19.5 6.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
 };
 
 /** SVG completo (sin badge) de un glifo -- currentColor, para usar suelto
@@ -69,15 +81,12 @@ const TOOL_GLYPH = {
     syncmanager: "sync",
     descargarmusica: "music",
     reloj: "clock",
-    pomodoro: "clock",
     ideasrapidas: "note",
     gastos: "money",
     paletacolores: "palette",
     creadortexturas: "bricks",
     scene: "clapper",
     lectordocs: "doc",
-    lectorpdf: "doc",
-    lectorlibros: "doc",
     settings: "gear",
 };
 

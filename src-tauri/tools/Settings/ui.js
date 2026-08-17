@@ -23,6 +23,8 @@ registerRenderer("settings", {
         // una entrada acá, no repetir el bloque entero.
         const FOLDERS = [
             { key: "music", label: "Descargar Música", get: () => invoke("dl_get_config"), set: (folder) => invoke("dl_set_config", { folder }) },
+            { key: "pdf", label: "Lector de Documentos -- PDF", get: () => invoke("pdf_get_config"), set: (folder) => invoke("pdf_set_config", { folder }) },
+            { key: "books", label: "Lector de Documentos -- Libros", get: () => invoke("book_get_config"), set: (folder) => invoke("book_set_folder", { folder }) },
         ];
 
         wrap.innerHTML = `

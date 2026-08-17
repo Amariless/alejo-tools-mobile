@@ -123,6 +123,7 @@ window._toolCtx = {
     // desde un picker nativo en vez de escribir la ruta a mano.
     pickFolder,
     checkPendingFolderPick,
+    setChromeHidden,
     get activeTool()    { return activeTool; },
     get toolOutput()    { return toolOutput; },
     get toolInputArea() { return toolInputArea; },
@@ -291,8 +292,21 @@ function renderToolList() {
     });
 }
 
+// NUEVO (Lector de Documentos -- lector "a pantalla completa", pedido del
+// usuario): oculta/muestra la app-bar propia de la app entera mientras una
+// herramienta muestra su propio contenido a pantalla completa con su
+// propia barra flotante encima (que aparece/desaparece con un toque, ver
+// LectorDocs/ui.js). showList()/showToolView() la vuelven a mostrar
+// siempre como red de seguridad -- así nunca queda escondida "para
+// siempre" aunque una herramienta se salga de una vista fullscreen por un
+// camino que no haya limpiado su propio estado.
+function setChromeHidden(hidden) {
+    appBar.classList.toggle("app-bar--hidden", hidden);
+}
+
 // ── Navegación entre lista y herramienta ────────────────
 function showList() {
+    setChromeHidden(false);
     toolListEl.classList.remove("hidden");
     toolView.classList.add("hidden");
     appBarBack.classList.add("hidden");
@@ -305,6 +319,7 @@ function showList() {
 }
 
 function showToolView() {
+    setChromeHidden(false);
     toolListEl.classList.add("hidden");
     toolView.classList.remove("hidden");
     appBarBack.classList.remove("hidden");

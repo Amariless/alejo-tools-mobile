@@ -1,6 +1,0 @@
-{
-  "name": "Lector de PDF",
-  "description": "Leer PDFs guardados en el teléfono, manejador por defecto del sistema",
-  "input": "lectorpdf",
-  "persistent": false
-}

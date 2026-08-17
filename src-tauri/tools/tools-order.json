@@ -4,13 +4,12 @@
 
   "SyncManager":     10,
   "DescargarMusica": 20,
-  "Pomodoro":        30,
+  "Reloj":           30,
   "IdeasRapidas":    40,
   "Gastos":          50,
   "PaletaColores":   60,
   "CreadorTexturas": 70,
   "GeneradorEscenas": 80,
-  "LectorPDF":       90,
-  "LectorLibros":    100,
+  "LectorDocs":      90,
   "Settings":        999
 }

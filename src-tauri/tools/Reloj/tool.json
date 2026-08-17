@@ -1,0 +1,6 @@
+{
+  "name": "Reloj",
+  "description": "Pomodoro, reloj mundial y clima",
+  "input": "reloj",
+  "persistent": true
+}

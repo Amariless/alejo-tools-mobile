@@ -111,3 +111,10 @@
   color: var(--text);
   font-size: .88rem;
 }
+
+/* NUEVO (revisión de código -- bug real): usada por la fila de acciones
+   del form pero nunca definida acá -- cada tool.json carga UN solo
+   style.css propio, la regla de SyncManager/style.css con el mismo nombre
+   no llega hasta acá. */
+.sm-row-actions { display: flex; gap: 8px; }
+.sm-row-actions button { flex: 1; }

@@ -28,6 +28,7 @@ use std::collections::HashMap;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 
+mod clock;
 mod downloader;
 mod epub;
 mod expenses;
@@ -35,7 +36,6 @@ mod folder_picker;
 mod installer;
 mod notes;
 mod pdf;
-mod pomodoro;
 mod scene_prompts;
 mod storage;
 mod syncthing;
@@ -196,13 +196,21 @@ pub fn run() {
             // herramienta que necesite elegir una carpeta)
             folder_picker::pick_folder_start,
             folder_picker::pick_folder_poll,
-            // Pomodoro
-            pomodoro::pomodoro_get_config,
-            pomodoro::pomodoro_set_config,
+            // Reloj (Pomodoro + reloj mundial + clima)
+            clock::pomodoro_get_config,
+            clock::pomodoro_set_config,
+            clock::clock_get_worldclock_config,
+            clock::clock_set_worldclock_config,
+            clock::clock_get_weather_config,
+            clock::clock_set_weather_config,
+            clock::clock_get_weather,
             // Ideas rápidas
             notes::notes_list,
             notes::notes_save,
             notes::notes_delete,
+            notes::notes_categories_list,
+            notes::notes_categories_save,
+            notes::notes_categories_delete,
             // Gastos
             expenses::expenses_list,
             expenses::expenses_save,
@@ -213,7 +221,7 @@ pub fn run() {
             // Generador de Escenas
             scene_prompts::scene_prompts_list,
             scene_prompts::scene_prompts_save_all,
-            // Lector de PDF
+            // Lector de Documentos (PDF + Libros fusionados)
             pdf::pdf_get_config,
             pdf::pdf_set_config,
             pdf::pdf_list_folder,
@@ -221,15 +229,23 @@ pub fn run() {
             pdf::pdf_render_page,
             pdf::pdf_close,
             pdf::pdf_take_pending_uri,
-            // Lector de Libros (EPUB)
+            pdf::pdf_get_progress,
+            pdf::pdf_set_progress,
+            pdf::pdf_get_thumbnail,
+            pdf::pdf_delete_file,
+            pdf::pdf_rename_file,
             epub::book_get_config,
             epub::book_set_config,
+            epub::book_set_folder,
             epub::book_list_folder,
             epub::book_open,
             epub::book_get_chapter,
             epub::book_close,
             epub::book_get_progress,
             epub::book_set_progress,
+            epub::book_get_preview,
+            epub::book_delete_file,
+            epub::book_rename_file,
             // Auto-actualización por GitHub Releases
             update::check_for_update,
             update::download_and_install_update,

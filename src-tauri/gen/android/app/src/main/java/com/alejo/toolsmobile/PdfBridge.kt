@@ -170,10 +170,10 @@ object PdfBridge {
         try { pfds.remove(sessionId)?.close() } catch (e: Exception) { /* best effort */ }
     }
 
-    /// Lista los ".pdf" de una carpeta (no recursivo) -- nombre + tamaño,
-    /// ordenados alfabéticamente. Devuelve un array JSON (no un objeto
-    /// {ok:..} como el resto, para que el lado Rust lo parsee directo como
-    /// Vec<Value>).
+    /// Lista los ".pdf" de una carpeta (no recursivo) -- nombre + tamaño +
+    /// fecha de modificación, ordenados alfabéticamente. Devuelve un array
+    /// JSON (no un objeto {ok:..} como el resto, para que el lado Rust lo
+    /// parsee directo como Vec<Value>).
     @JvmStatic
     fun listFolder(dirPath: String): String {
         val dir = File(dirPath)
@@ -184,8 +184,77 @@ object PdfBridge {
             o.put("name", f.name)
             o.put("path", f.absolutePath)
             o.put("sizeBytes", f.length())
+            o.put("modifiedAt", f.lastModified())
             arr.put(o)
         }
         return arr.toString()
+    }
+
+    /// NUEVO (miniaturas en la lista, pedido del usuario): renderiza UNA
+    /// página a PNG chico (para la miniatura de la primera página, o de la
+    /// última leída si ya hay progreso guardado) sin dejar una sesión
+    /// abierta -- a diferencia de open()+renderPage()+close(), acá todo el
+    /// ciclo de vida del PdfRenderer vive dentro de esta única llamada, así
+    /// que no hace falta que el frontend se acuerde de cerrar nada por cada
+    /// miniatura (podrían ser decenas, una por archivo listado).
+    @JvmStatic
+    fun renderThumbnail(pathOrUri: String, pageIndex: Int, maxWidthPx: Int): String {
+        return try {
+            val isContentUri = pathOrUri.startsWith("content://")
+            val pfd = if (isContentUri) {
+                null // las miniaturas son siempre de archivos listados por ruta cruda, nunca de "Abrir con..."
+            } else {
+                ParcelFileDescriptor.open(File(pathOrUri), ParcelFileDescriptor.MODE_READ_ONLY)
+            } ?: throw IllegalStateException("Ruta inválida para miniatura")
+            pfd.use { fd ->
+                PdfRenderer(fd).use { renderer ->
+                    val idx = pageIndex.coerceIn(0, renderer.pageCount - 1)
+                    renderer.openPage(idx).use { page ->
+                        val scale = maxWidthPx.toFloat() / page.width.toFloat()
+                        val w = maxWidthPx
+                        val h = (page.height * scale).toInt().coerceAtLeast(1)
+                        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                        bitmap.eraseColor(Color.WHITE)
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        val out = ByteArrayOutputStream()
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 80, out)
+                        bitmap.recycle()
+                        val j = JSONObject()
+                        j.put("ok", true)
+                        j.put("png", Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP))
+                        j.toString()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            errorJson(e)
+        }
+    }
+
+    /// Borra un .pdf del storage. Devuelve {"ok":true} o {"ok":false,"error":..}.
+    @JvmStatic
+    fun deleteFile(path: String): String {
+        return try {
+            val f = File(path)
+            if (!f.delete()) throw IllegalStateException("No se pudo borrar el archivo")
+            JSONObject().put("ok", true).toString()
+        } catch (e: Exception) {
+            errorJson(e)
+        }
+    }
+
+    /// Renombra un .pdf dentro de la misma carpeta. Devuelve
+    /// {"ok":true,"path":"<ruta nueva>"} o {"ok":false,"error":..}.
+    @JvmStatic
+    fun renameFile(path: String, newName: String): String {
+        return try {
+            val f = File(path)
+            val target = File(f.parentFile, newName)
+            if (target.exists()) throw IllegalStateException("Ya existe un archivo con ese nombre")
+            if (!f.renameTo(target)) throw IllegalStateException("No se pudo renombrar el archivo")
+            JSONObject().put("ok", true).put("path", target.absolutePath).toString()
+        } catch (e: Exception) {
+            errorJson(e)
+        }
     }
 }

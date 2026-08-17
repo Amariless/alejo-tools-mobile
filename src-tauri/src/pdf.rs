@@ -54,6 +54,52 @@ pub fn pdf_set_config(app: AppHandle, folder: String) -> Result<(), String> {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+//  PROGRESO DE LECTURA -- mismo patrón que book_progress.json de epub.rs
+//  (local, no viaja por SyncManager, ver la nota grande en epub.rs sobre
+//  el porqué). NUEVO respecto de la primera versión: antes el Lector de
+//  PDF no recordaba nada -- hacía falta para la miniatura de "última
+//  página leída" que pidió el usuario en la lista de archivos.
+// ══════════════════════════════════════════════════════════════════════════
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfProgress {
+    pub page_index: u32,
+    pub scroll_fraction: f64,
+    pub updated_at: i64,
+}
+
+fn progress_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("pdf_progress.json"))
+}
+
+fn read_all_progress(app: &AppHandle) -> std::collections::HashMap<String, PdfProgress> {
+    let Ok(path) = progress_path(app) else { return Default::default() };
+    std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
+
+fn write_all_progress(app: &AppHandle, all: &std::collections::HashMap<String, PdfProgress>) -> Result<(), String> {
+    let path = progress_path(app)?;
+    let s = serde_json::to_string_pretty(all).map_err(|e| e.to_string())?;
+    std::fs::write(&path, s).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn pdf_get_progress(app: AppHandle, path: String) -> Option<PdfProgress> {
+    read_all_progress(&app).get(&path).cloned()
+}
+
+#[tauri::command]
+pub fn pdf_set_progress(app: AppHandle, path: String, page_index: u32, scroll_fraction: f64) -> Result<(), String> {
+    let mut all = read_all_progress(&app);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+    all.insert(path, PdfProgress { page_index, scroll_fraction, updated_at: now });
+    write_all_progress(&app, &all)
+}
+
+// ══════════════════════════════════════════════════════════════════════════
 //  PUENTE JNI -- PdfBridge.kt
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -190,6 +236,45 @@ async fn call_pdf_bridge_render_page(app: &AppHandle, session_id: &str, page_ind
     .await
 }
 
+// "renderThumbnail" recibe (String, int, int) -- mismo motivo que
+// renderPage arriba para armar sus propios JValue en vez de reusar
+// call_pdf_bridge_static_str.
+async fn call_pdf_bridge_thumbnail(app: &AppHandle, path: &str, page_index: u32, max_width: u32) -> Result<String, String> {
+    use jni::objects::JValue;
+    let path = path.to_string();
+    let page_index = page_index as i32;
+    let max_width = max_width as i32;
+    call_pdf_bridge(app, move |env, class, _activity| {
+        let path_j = env.new_string(&path).map_err(|e| e.to_string())?;
+        let ret = env.call_static_method(
+            class,
+            "renderThumbnail",
+            "(Ljava/lang/String;II)Ljava/lang/String;",
+            &[JValue::Object(&path_j), JValue::Int(page_index), JValue::Int(max_width)],
+        );
+        jstring_result(env, ret, "Error llamando renderThumbnail")
+    })
+    .await
+}
+
+async fn call_pdf_bridge_rename(app: &AppHandle, path: &str, new_name: &str) -> Result<String, String> {
+    use jni::objects::JValue;
+    let path = path.to_string();
+    let new_name = new_name.to_string();
+    call_pdf_bridge(app, move |env, class, _activity| {
+        let path_j = env.new_string(&path).map_err(|e| e.to_string())?;
+        let name_j = env.new_string(&new_name).map_err(|e| e.to_string())?;
+        let ret = env.call_static_method(
+            class,
+            "renameFile",
+            "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+            &[JValue::Object(&path_j), JValue::Object(&name_j)],
+        );
+        jstring_result(env, ret, "Error llamando renameFile")
+    })
+    .await
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 //  COMANDOS TAURI
 // ══════════════════════════════════════════════════════════════════════════
@@ -275,4 +360,60 @@ async fn close_impl(app: &AppHandle, session_id: &str) -> Result<(), String> {
 #[tauri::command]
 pub async fn pdf_take_pending_uri(app: AppHandle) -> Result<String, String> {
     call_pdf_bridge_static_str(&app, "takePendingUri", "()Ljava/lang/String;", vec![]).await
+}
+
+/// Miniatura chica de una página -- la primera si el archivo nunca se
+/// abrió, o la última leída si hay progreso guardado (ver pdf_get_progress,
+/// lo decide el frontend antes de llamar acá). No requiere sesión abierta.
+#[tauri::command]
+pub async fn pdf_get_thumbnail(app: AppHandle, path: String, page_index: u32, max_width: u32) -> Result<String, String> {
+    let raw = call_pdf_bridge_thumbnail(&app, &path, page_index, max_width).await?;
+    let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| format!("Respuesta inesperada: {e}"))?;
+    if v.get("ok").and_then(|b| b.as_bool()) != Some(true) {
+        let err = v.get("error").and_then(|e| e.as_str()).unwrap_or("Error desconocido");
+        return Err(format!("No se pudo generar la miniatura: {err}"));
+    }
+    let png = v.get("png").and_then(|p| p.as_str()).unwrap_or("").to_string();
+    Ok(png)
+}
+
+/// Borra un .pdf de la carpeta configurada -- también limpia su progreso
+/// guardado (si no, quedaría un registro huérfano en pdf_progress.json).
+#[tauri::command]
+pub async fn pdf_delete_file(app: AppHandle, path: String) -> Result<(), String> {
+    if !crate::storage::has_all_files_access(&app).await? {
+        return Err("Falta el permiso \"Acceso a todos los archivos\".".to_string());
+    }
+    let raw = call_pdf_bridge_static_str(&app, "deleteFile", "(Ljava/lang/String;)Ljava/lang/String;", vec![path.clone()]).await?;
+    let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| format!("Respuesta inesperada: {e}"))?;
+    if v.get("ok").and_then(|b| b.as_bool()) != Some(true) {
+        let err = v.get("error").and_then(|e| e.as_str()).unwrap_or("Error desconocido");
+        return Err(format!("No se pudo borrar el archivo: {err}"));
+    }
+    let mut all = read_all_progress(&app);
+    if all.remove(&path).is_some() { let _ = write_all_progress(&app, &all); }
+    Ok(())
+}
+
+/// Renombra un .pdf -- migra también su progreso guardado (queda indexado
+/// por ruta, ver PdfProgress) para no perder "dónde iba" solo por
+/// cambiarle el nombre al archivo.
+#[tauri::command]
+pub async fn pdf_rename_file(app: AppHandle, path: String, new_name: String) -> Result<String, String> {
+    if !crate::storage::has_all_files_access(&app).await? {
+        return Err("Falta el permiso \"Acceso a todos los archivos\".".to_string());
+    }
+    let raw = call_pdf_bridge_rename(&app, &path, &new_name).await?;
+    let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| format!("Respuesta inesperada: {e}"))?;
+    if v.get("ok").and_then(|b| b.as_bool()) != Some(true) {
+        let err = v.get("error").and_then(|e| e.as_str()).unwrap_or("Error desconocido");
+        return Err(format!("No se pudo renombrar el archivo: {err}"));
+    }
+    let new_path = v.get("path").and_then(|p| p.as_str()).unwrap_or(&new_name).to_string();
+    let mut all = read_all_progress(&app);
+    if let Some(prog) = all.remove(&path) {
+        all.insert(new_path.clone(), prog);
+        let _ = write_all_progress(&app, &all);
+    }
+    Ok(new_path)
 }

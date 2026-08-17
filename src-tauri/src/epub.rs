@@ -79,12 +79,26 @@ pub fn book_set_config(app: AppHandle, folder: String, font_size: u32) -> Result
     std::fs::write(&path, s).map_err(|e| e.to_string())
 }
 
+/// Setter de solo-carpeta -- para que Settings (ver FOLDERS en
+/// Settings/ui.js, patrón genérico `set: (folder) => invoke(...)` con un
+/// único argumento) pueda cambiar la carpeta de libros sin tener que
+/// conocer/pisar font_size, que se administra desde el lector.
+#[tauri::command]
+pub fn book_set_folder(app: AppHandle, folder: String) -> Result<(), String> {
+    let mut cfg = book_get_config(app.clone());
+    cfg.folder = folder.trim().to_string();
+    let path = config_path(&app)?;
+    let s = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+    std::fs::write(&path, s).map_err(|e| e.to_string())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BookFile {
     pub name: String,
     pub path: String,
     pub size_bytes: u64,
+    pub modified_at: i64,
 }
 
 #[tauri::command]
@@ -101,11 +115,91 @@ pub async fn book_list_folder(app: AppHandle, folder: String) -> Result<Vec<Book
         let is_epub = path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("epub")).unwrap_or(false);
         if !is_epub { continue; }
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-        let size_bytes = entry.metadata().map(|m| m.len()).unwrap_or(0);
-        out.push(BookFile { name, path: path.to_string_lossy().to_string(), size_bytes });
+        let meta = entry.metadata().ok();
+        let size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        let modified_at = meta
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        out.push(BookFile { name, path: path.to_string_lossy().to_string(), size_bytes, modified_at });
     }
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(out)
+}
+
+/// Borra un .epub -- también limpia su progreso guardado.
+#[tauri::command]
+pub async fn book_delete_file(app: AppHandle, path: String) -> Result<(), String> {
+    if !crate::storage::has_all_files_access(&app).await? {
+        return Err("Falta el permiso \"Acceso a todos los archivos\".".to_string());
+    }
+    std::fs::remove_file(&path).map_err(|e| format!("No se pudo borrar el archivo: {e}"))?;
+    let mut all = read_all_progress(&app);
+    if all.remove(&path).is_some() {
+        let out_path = progress_path(&app)?;
+        let s = serde_json::to_string_pretty(&all).map_err(|e| e.to_string())?;
+        let _ = std::fs::write(&out_path, s);
+    }
+    Ok(())
+}
+
+/// Renombra un .epub dentro de la misma carpeta -- migra también su
+/// progreso guardado (indexado por ruta) para no perder "dónde iba".
+#[tauri::command]
+pub async fn book_rename_file(app: AppHandle, path: String, new_name: String) -> Result<String, String> {
+    if !crate::storage::has_all_files_access(&app).await? {
+        return Err("Falta el permiso \"Acceso a todos los archivos\".".to_string());
+    }
+    let old = PathBuf::from(&path);
+    let parent = old.parent().ok_or("Ruta inválida")?;
+    let target = parent.join(&new_name);
+    if target.exists() {
+        return Err("Ya existe un archivo con ese nombre.".to_string());
+    }
+    std::fs::rename(&old, &target).map_err(|e| format!("No se pudo renombrar: {e}"))?;
+    let new_path = target.to_string_lossy().to_string();
+    let mut all = read_all_progress(&app);
+    if let Some(prog) = all.remove(&path) {
+        all.insert(new_path.clone(), prog);
+        let out_path = progress_path(&app)?;
+        let s = serde_json::to_string_pretty(&all).map_err(|e| e.to_string())?;
+        let _ = std::fs::write(&out_path, s);
+    }
+    Ok(new_path)
+}
+
+/// Vista previa chica de texto para la miniatura en la lista (pedido del
+/// usuario -- "mini preview de la primera página, o de la última leída"):
+/// como un .epub no tiene una imagen de página como el PDF, la miniatura
+/// acá es un fragmento de texto del capítulo correspondiente (el 0 si el
+/// libro nunca se abrió, o el del progreso guardado si ya se leyó algo).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookPreview {
+    pub snippet: String,
+    pub chapter_index: usize,
+}
+
+#[tauri::command]
+pub async fn book_get_preview(app: AppHandle, path: String) -> Result<BookPreview, String> {
+    if !crate::storage::has_all_files_access(&app).await? {
+        return Err("Falta el permiso \"Acceso a todos los archivos\".".to_string());
+    }
+    let parsed = parse_epub(&path)?;
+    let chapter_index = read_all_progress(&app)
+        .get(&path)
+        .map(|p| p.chapter_index.min(parsed.spine.len().saturating_sub(1)))
+        .unwrap_or(0);
+    let entry_name = parsed.spine.get(chapter_index).cloned().ok_or("Capítulo fuera de rango")?;
+    let file = std::fs::File::open(&path).map_err(|e| format!("No se pudo abrir el archivo: {e}"))?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("No se pudo leer el epub: {e}"))?;
+    let raw_bytes = zip_read_entry(&mut zip, &entry_name)?;
+    let raw = String::from_utf8_lossy(&raw_bytes);
+    let (html, _title) = clean_chapter_html(&raw);
+    let text = strip_tags(&html);
+    let snippet: String = text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(160).collect();
+    Ok(BookPreview { snippet, chapter_index })
 }
 
 // ══════════════════════════════════════════════════════════════════════════

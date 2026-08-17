@@ -69,3 +69,11 @@
   color: var(--success);
   overflow-wrap: anywhere;
 }
+
+/* NUEVO (revisión de código -- bug real): esta clase la usa dl-btn "Cancelar"
+   pero nunca estuvo definida acá -- cada tool.json carga UN solo style.css
+   propio (get_tool_style), así que la regla de SyncManager/style.css con el
+   mismo nombre no llega hasta acá. Sin esto los botones de esa fila
+   quedaban sin flex/gap (apilados, pegados). */
+.sm-row-actions { display: flex; gap: 8px; }
+.sm-row-actions button { flex: 1; }

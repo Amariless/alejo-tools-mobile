@@ -119,6 +119,11 @@ body {
 }
 #app-bar-back:active, #app-bar-settings:active { background: var(--surface-alt); transform: scale(.92); }
 #app-bar-back.hidden, #app-bar-settings.hidden { display: none; }
+/* NUEVO (Lector de Documentos, pedido del usuario -- lector "a pantalla
+   completa"): una herramienta puede pedir ocultar la app-bar propia de la
+   app entera (ver ctx.setChromeHidden en main.js) mientras muestra su
+   propia barra flotante encima del contenido. */
+#app-bar.app-bar--hidden { display: none; }
 #app-bar-icon:empty { display: none; }
 #app-bar-desc:empty { display: none; }
 #app-bar-icon {
