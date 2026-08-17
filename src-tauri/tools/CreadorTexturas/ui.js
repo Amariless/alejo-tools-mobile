@@ -220,9 +220,24 @@ registerRenderer("creadortexturas", {
             }
 
             const strengthRow = el("div", { className: "tx-slider-row" });
-            strengthRow.appendChild(el("label", { textContent: `Fuerza del relieve: ${S.strength.toFixed(1)}` }));
+            const strengthLabel = el("label", { textContent: `Fuerza del relieve: ${S.strength.toFixed(1)}` });
+            strengthRow.appendChild(strengthLabel);
             const slider = el("input", { type: "range", min: "0.5", max: "6", step: "0.1", value: String(S.strength) });
-            slider.oninput = (e) => { S.strength = parseFloat(e.target.value); computeNormalMap(); renderView(); };
+            // NUEVO (bug real, arreglado): antes esto llamaba a renderView()
+            // en cada tick de "input" (dispara en CADA pixel de arrastre),
+            // que hace root.innerHTML = "" y reconstruye todo -- incluido
+            // este mismo <input>. Al reemplazar el elemento que el
+            // navegador está tocando a mitad de un gesto, se corta su
+            // captura táctil nativa: solo el primer toque llegaba a
+            // registrar un valor, el arrastre en sí no seguía. Ahora
+            // "input" solo actualiza el label (barato, no toca el DOM del
+            // slider) y el recálculo pesado + re-render se hace una sola
+            // vez al soltar ("change").
+            slider.oninput = (e) => {
+                S.strength = parseFloat(e.target.value);
+                strengthLabel.textContent = `Fuerza del relieve: ${S.strength.toFixed(1)}`;
+            };
+            slider.onchange = () => { computeNormalMap(); renderView(); };
             strengthRow.appendChild(slider);
             root.appendChild(strengthRow);
 

@@ -98,7 +98,8 @@
 .gs-item-cat { font-weight: 600; font-size: .86rem; display: flex; align-items: center; gap: 6px; }
 .gs-item-note { font-size: .74rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gs-item-amount { font-weight: 700; font-size: .88rem; white-space: nowrap; }
-.gs-item-delete { background: transparent; border: none; padding: 2px 4px; font-size: .9rem; }
+.gs-item-delete { background: transparent; border: none; padding: 4px; color: var(--text-muted); display: flex; align-items: center; justify-content: center; }
+.gs-item-delete:active { color: var(--error); }
 
 .gs-form { display: flex; flex-direction: column; gap: 10px; }
 .gs-form select {

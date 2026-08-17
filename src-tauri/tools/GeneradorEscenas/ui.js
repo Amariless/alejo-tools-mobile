@@ -1114,9 +1114,19 @@ registerRenderer("scene", {
             wrap.appendChild(countRow);
 
             const densRow = el("div", { className: "sg-ctrl-block" });
-            densRow.appendChild(el("div", { className: "sg-ctrl-label", textContent: `DENSIDAD: ${S.densidad.toFixed(1)} (${S.densidad < 0.4 ? "Simple" : S.densidad > 0.7 ? "Detallado" : "Media"})` }));
+            const densLabel = el("div", { className: "sg-ctrl-label", textContent: `DENSIDAD: ${S.densidad.toFixed(1)} (${S.densidad < 0.4 ? "Simple" : S.densidad > 0.7 ? "Detallado" : "Media"})` });
+            densRow.appendChild(densLabel);
             const densSlider = el("input", { type: "range", min: "0", max: "1", step: "0.1", value: String(S.densidad) });
-            densSlider.oninput = (e) => { S.densidad = parseFloat(e.target.value); renderView(); };
+            // NUEVO (bug real, arreglado): renderView() en "input" hace
+            // root.innerHTML = "" en CADA tick de arrastre, destruyendo el
+            // propio <input> que el navegador está tocando -- eso corta la
+            // captura táctil nativa a mitad de gesto (solo el primer toque
+            // llegaba a cambiar el valor). Ahora "input" solo actualiza el
+            // texto del label, sin tocar el DOM del slider.
+            densSlider.oninput = (e) => {
+                S.densidad = parseFloat(e.target.value);
+                densLabel.textContent = `DENSIDAD: ${S.densidad.toFixed(1)} (${S.densidad < 0.4 ? "Simple" : S.densidad > 0.7 ? "Detallado" : "Media"})`;
+            };
             densRow.appendChild(densSlider);
             wrap.appendChild(densRow);
 
@@ -1137,9 +1147,15 @@ registerRenderer("scene", {
             wrap.appendChild(estRow);
 
             const fuerzaRow = el("div", { className: "sg-ctrl-block" });
-            fuerzaRow.appendChild(el("div", { className: "sg-ctrl-label", textContent: `FUERZA DE LA ESTÉTICA: ${S.fuerza}` }));
+            const fuerzaLabel = el("div", { className: "sg-ctrl-label", textContent: `FUERZA DE LA ESTÉTICA: ${S.fuerza}` });
+            fuerzaRow.appendChild(fuerzaLabel);
             const fuerzaSlider = el("input", { type: "range", min: "0", max: "100", step: "5", value: String(S.fuerza) });
-            fuerzaSlider.oninput = (e) => { S.fuerza = parseInt(e.target.value, 10); renderView(); };
+            // Mismo motivo que el slider de densidad (ver arriba): "input"
+            // solo toca el label, no renderView().
+            fuerzaSlider.oninput = (e) => {
+                S.fuerza = parseInt(e.target.value, 10);
+                fuerzaLabel.textContent = `FUERZA DE LA ESTÉTICA: ${S.fuerza}`;
+            };
             fuerzaRow.appendChild(fuerzaSlider);
             wrap.appendChild(fuerzaRow);
 

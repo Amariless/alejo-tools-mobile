@@ -16,14 +16,6 @@ registerRenderer("settings", {
 
         wrap.innerHTML = `
             <div class="st-card">
-                <div class="st-card-title">Estado del proyecto</div>
-                <ul class="st-list">
-                    <li>✅ Esqueleto (list_tools / get_tool_ui / get_tool_style)</li>
-                    <li>✅ SyncManager (cliente de Syncthing-Android)</li>
-                    <li>⏳ Descargar Música (youtubedl-android)</li>
-                </ul>
-            </div>
-            <div class="st-card">
                 <div class="st-card-title">Versión</div>
                 <div class="st-version" id="st-current-version">…</div>
                 <button id="st-update-btn" class="primary">Buscar actualizaciones</button>

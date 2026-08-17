@@ -1,6 +1,5 @@
 {
   "name": "Descargar Música",
-  "icon": "🎵",
   "description": "Bajar canciones de YouTube, SoundCloud, etc. como mp3",
   "input": "descargarmusica",
   "persistent": false

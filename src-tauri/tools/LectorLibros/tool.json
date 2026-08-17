@@ -1,6 +1,5 @@
 {
   "name": "Lector de Libros",
-  "icon": "📚",
   "description": "Leer EPUB guardados en el teléfono, con progreso de lectura",
   "input": "lectorlibros",
   "persistent": false

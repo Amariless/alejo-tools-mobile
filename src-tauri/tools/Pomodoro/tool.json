@@ -1,6 +1,5 @@
 {
   "name": "Pomodoro",
-  "icon": "⏱️",
   "description": "Temporizador de trabajo y descansos",
   "input": "pomodoro",
   "persistent": true

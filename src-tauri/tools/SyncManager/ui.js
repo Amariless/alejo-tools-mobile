@@ -141,7 +141,7 @@ registerRenderer("syncmanager", {
                     const suggestedPath = `/storage/emulated/0/Syncthing/${label}`;
                     const row = el("div", { className: "sm-card sm-pending" });
                     row.innerHTML = `
-                        <div class="sm-pending-name">📁 ${label}</div>
+                        <div class="sm-pending-name">${window.AlejoIcons ? window.AlejoIcons.glyph("folder", 16) : ""} ${label}</div>
                         <div class="sm-pending-sub">ofrecida por ${deviceId.slice(0, 7)}…</div>
                         <div class="input-row"><input type="text" class="sm-accept-path" value="${suggestedPath}"></div>
                         <div class="sm-row-actions">
@@ -179,7 +179,7 @@ registerRenderer("syncmanager", {
                 const row = el("div", { className: "sm-card sm-folder" });
                 row.innerHTML = `
                     <div class="sm-folder-main">
-                        <div class="sm-folder-name">📁 ${f.label || f.id}</div>
+                        <div class="sm-folder-name">${window.AlejoIcons ? window.AlejoIcons.glyph("folder", 16) : ""} ${f.label || f.id}</div>
                         <div class="sm-folder-sub">${state}${stt ? " · " + fmtBytes(stt.globalBytes) : ""}</div>
                     </div>`;
                 const actions = el("div", { className: "sm-row-actions" });
@@ -274,7 +274,7 @@ registerRenderer("syncmanager", {
         function renderConflictGroup(g) {
             const card = el("div", { className: "sm-card sm-conflict" });
             const head = el("div", { className: "sm-conflict-head" });
-            head.innerHTML = `<div class="sm-conflict-name">⚠️ ${g.file_name}</div>
+            head.innerHTML = `<div class="sm-conflict-name">${window.AlejoIcons ? window.AlejoIcons.glyph("alert", 16) : ""} ${g.file_name}</div>
                 <div class="sm-conflict-sub">${g.folder_label} · ${g.variants.length} versiones</div>`;
             card.appendChild(head);
             const list = el("div", { className: "sm-conflict-variants" });
@@ -282,7 +282,7 @@ registerRenderer("syncmanager", {
                 const row = el("div", { className: "sm-variant-row" });
                 row.innerHTML = `
                     <div class="sm-variant-info">
-                        <div>${v.is_original ? "📄 Original" : "🕓 " + (v.device_name || v.device_short_id || "conflicto")}</div>
+                        <div>${v.is_original ? "Original" : (v.device_name || v.device_short_id || "conflicto")}</div>
                         <div class="sm-variant-sub">${fmtDate(v.modified_secs)} · ${fmtBytes(v.size_bytes)}</div>
                     </div>
                     <button class="sm-keep-btn">Quedarme con esta</button>`;
@@ -308,7 +308,7 @@ registerRenderer("syncmanager", {
         function renderDuplicateGroup(g) {
             const card = el("div", { className: "sm-card sm-conflict" });
             const head = el("div", { className: "sm-conflict-head" });
-            head.innerHTML = `<div class="sm-conflict-name">📑 Archivos duplicados</div>
+            head.innerHTML = `<div class="sm-conflict-name">${window.AlejoIcons ? window.AlejoIcons.glyph("copy", 16) : ""} Archivos duplicados</div>
                 <div class="sm-conflict-sub">${g.folder_label} · ${g.paths.length} copias · ${fmtBytes(g.size_bytes)} c/u</div>`;
             card.appendChild(head);
             const list = el("div", { className: "sm-conflict-variants" });
@@ -373,7 +373,7 @@ registerRenderer("syncmanager", {
             const conflicts = S.conflicts || [];
             const duplicates = S.duplicates || [];
             if (!conflicts.length && !duplicates.length) {
-                wrap.appendChild(el("p", { className: "sm-empty", textContent: "No se encontraron conflictos ni duplicados. 🎉" }));
+                wrap.appendChild(el("p", { className: "sm-empty", textContent: "No se encontraron conflictos ni duplicados." }));
                 return wrap;
             }
             conflicts.forEach(g => wrap.appendChild(renderConflictGroup(g)));
@@ -411,11 +411,11 @@ registerRenderer("syncmanager", {
         function renderConnected() {
             root.innerHTML = "";
             const toolbar = el("div", { className: "sm-toolbar" });
-            const refreshBtn = el("button", { textContent: "↻ Actualizar" });
+            const refreshBtn = el("button", { textContent: "Actualizar" });
             refreshBtn.onclick = () => refreshAll();
             const qrBtn = el("button", { textContent: S.showQr ? "Ocultar QR" : "Emparejar (QR)" });
             qrBtn.onclick = toggleQr;
-            const maintBtn = el("button", { textContent: S.showMaint ? "Ocultar" : "🧹 Duplicados" });
+            const maintBtn = el("button", { textContent: S.showMaint ? "Ocultar" : "Duplicados" });
             maintBtn.onclick = toggleMaint;
             toolbar.append(refreshBtn, qrBtn, maintBtn);
             root.appendChild(toolbar);

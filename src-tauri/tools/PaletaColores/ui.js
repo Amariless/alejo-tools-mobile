@@ -139,9 +139,21 @@ registerRenderer("paletacolores", {
             root.appendChild(el("img", { className: "pc-preview", src: S.imageUrl }));
 
             const sliderRow = el("div", { className: "pc-slider-row" });
-            sliderRow.appendChild(el("label", { textContent: `Detalle de la paleta: ${S.count} colores` }));
+            const sliderLabel = el("label", { textContent: `Detalle de la paleta: ${S.count} colores` });
+            sliderRow.appendChild(sliderLabel);
             const slider = el("input", { type: "range", min: "3", max: "12", value: String(S.count) });
-            slider.oninput = (e) => { S.count = parseInt(e.target.value, 10); reextract(); };
+            // NUEVO (bug real, arreglado): reextract() termina en
+            // renderView() (root.innerHTML = ""), que en "input" (dispara
+            // en cada tick de arrastre) destruye el propio <input> a mitad
+            // de gesto y corta la captura táctil nativa -- solo el primer
+            // toque llegaba a cambiar el valor. "input" ahora solo
+            // actualiza el label; volver a extraer la paleta (más re-render
+            // completo) se hace una sola vez al soltar ("change").
+            slider.oninput = (e) => {
+                S.count = parseInt(e.target.value, 10);
+                sliderLabel.textContent = `Detalle de la paleta: ${S.count} colores`;
+            };
+            slider.onchange = () => reextract();
             sliderRow.appendChild(slider);
             root.appendChild(sliderRow);
 

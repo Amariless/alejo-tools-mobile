@@ -181,7 +181,7 @@ registerRenderer("gastos", {
                         <div class="gs-item-note"></div>
                     </div>
                     <div class="gs-item-amount"></div>
-                    <button class="gs-item-delete" title="Borrar">🗑️</button>`;
+                    <button class="gs-item-delete" title="Borrar">${window.AlejoIcons ? window.AlejoIcons.glyph("trash", 18) : "×"}</button>`;
                 row.querySelector(".gs-item-note").textContent = item.note || "";
                 row.querySelector(".gs-item-amount").textContent = fmtMoney(item.amount);
                 row.querySelector(".gs-item-delete").onclick = (ev) => deleteItem(item.id, ev);

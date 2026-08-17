@@ -1,6 +1,5 @@
 {
   "name": "Paleta de Colores",
-  "icon": "🎨",
   "description": "Extraé una paleta de colores desde una foto",
   "input": "paletacolores",
   "persistent": false

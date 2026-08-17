@@ -29,12 +29,48 @@ const toolListEl     = document.getElementById("tool-list");
 const toolView       = document.getElementById("tool-view");
 const appBar         = document.getElementById("app-bar");
 const appBarBack     = document.getElementById("app-bar-back");
+const appBarSettings = document.getElementById("app-bar-settings");
 const appBarIcon     = document.getElementById("app-bar-icon");
 const appBarTitle    = document.getElementById("app-bar-title");
 const appBarDesc     = document.getElementById("app-bar-desc");
 const toolInputArea  = document.getElementById("tool-input-area");
 const toolOutput     = document.getElementById("tool-output");
 const styleOverride  = document.getElementById("tool-style-override");
+
+// ════════════════════════════════════════════════════════
+//  BOTÓN FÍSICO/GESTO DE "ATRÁS" DE ANDROID — Tauri ya trae un manejador
+//  nativo (app.tauri.AppPlugin, ver mobile/android del crate "tauri"):
+//  si el WebView tiene historial (WebView.canGoBack()) hace
+//  WebView.goBack(); si no, deja que la Activity haga lo de siempre
+//  (minimizar/cerrar). Antes de este cambio la app nunca tocaba
+//  history.pushState, así que canGoBack() siempre daba false y "atrás"
+//  cerraba la app de una, sin importar en qué pantalla estuviera el
+//  usuario -- el bug reportado.
+//
+//  Solución: una pila de "handlers" de retroceso in-app. Cada vez que se
+//  entra un nivel más adentro (lista -> herramienta, o una herramienta
+//  entra a una sub-vista propia), se llama pushBack(handler) -- eso
+//  apila el handler Y empuja un estado en el historial del navegador.
+//  goBack() (la flecha en pantalla) NUNCA llama al handler directo: solo
+//  pide history.back(), que WebView.goBack() también dispara -- así hay
+//  un solo camino real de "retroceder" sin importar si lo disparó el
+//  dedo del usuario tocando la flecha o el botón físico del teléfono.
+//  popstate (que dispara en ambos casos) es quien finalmente desapila y
+//  ejecuta el handler.
+// ════════════════════════════════════════════════════════
+const backStack = [];
+
+function pushBack(handler) {
+    backStack.push(handler);
+    history.pushState({ depth: backStack.length }, "");
+}
+
+function popBack() {
+    const handler = backStack.pop();
+    if (handler) handler();
+}
+
+window.addEventListener("popstate", popBack);
 
 // ════════════════════════════════════════════════════════
 //  HERRAMIENTAS PERSISTENTES — igual que en escritorio: una herramienta
@@ -74,6 +110,12 @@ window._toolCtx = {
     invoke, el, lbl, runTool,
     appendLine, appendSeparator, resetBtn, classifyLine,
     defaultOut, defaultDone, registerRenderer,
+    // pushBack: para que una herramienta con sub-vistas propias (ej. un
+    // lector con lista de archivos + vista de lectura) se sume al mismo
+    // mecanismo de "atrás" físico -- ver la pila de arriba. Su botón "←
+    // Lista" propio debe llamar a history.back() en vez de cerrar la
+    // sub-vista directo, igual que hace acá el botón de la app-bar.
+    pushBack,
     get activeTool()    { return activeTool; },
     get toolOutput()    { return toolOutput; },
     get toolInputArea() { return toolInputArea; },
@@ -177,21 +219,28 @@ async function checkDeepLinks() {
 }
 
 // ── Pantalla de inicio: lista de herramientas ───────────
+// NUEVO: Settings ya no aparece como una fila más de la lista -- vive
+// como el ícono de tuerca de la app-bar (ver appBarSettings más arriba).
+function visibleTools() {
+    return tools.filter(t => t.input !== "settings");
+}
+
 function renderToolList() {
     toolListEl.innerHTML = "";
-    if (!tools.length) {
+    const list = visibleTools();
+    if (!list.length) {
         toolListEl.appendChild(el("p", { className: "tool-list-empty", textContent: "Sin herramientas todavía" }));
         return;
     }
-    tools.forEach(tool => {
+    list.forEach(tool => {
         const item = el("button", { className: "tool-list-item", type: "button" });
         item.innerHTML = `
-            <span class="tool-list-item-icon">${tool.icon}</span>
+            ${window.AlejoIcons ? window.AlejoIcons.toolBadge(tool.input, 44) : ""}
             <div class="tool-list-item-text">
                 <div class="tool-list-item-name">${tool.name}</div>
                 <div class="tool-list-item-desc">${tool.description || ""}</div>
             </div>
-            <span class="tool-list-item-chevron">›</span>
+            <span class="tool-list-item-chevron">${window.AlejoIcons ? window.AlejoIcons.glyph("chevronRight", 20) : ""}</span>
         `;
         item.onclick = () => selectTool(tool);
         toolListEl.appendChild(item);
@@ -203,8 +252,9 @@ function showList() {
     toolListEl.classList.remove("hidden");
     toolView.classList.add("hidden");
     appBarBack.classList.add("hidden");
+    appBarSettings.classList.remove("hidden");
     appBar.classList.remove("app-bar--tool");
-    appBarIcon.textContent = "";
+    appBarIcon.innerHTML = "";
     appBarTitle.textContent = "Alejo Tools";
     appBarDesc.textContent = "";
     styleOverride.textContent = "";
@@ -214,6 +264,7 @@ function showToolView() {
     toolListEl.classList.add("hidden");
     toolView.classList.remove("hidden");
     appBarBack.classList.remove("hidden");
+    appBarSettings.classList.add("hidden");
     appBar.classList.add("app-bar--tool");
 }
 
@@ -229,22 +280,36 @@ async function deactivateCurrentTool() {
     }
 }
 
-async function goBack() {
+async function goBackToList() {
     await deactivateCurrentTool();
     activeTool = null;
     isRunning = false;
     showList();
 }
-appBarBack.onclick = goBack;
+// NUEVO: la flecha en pantalla ya no llama a la lógica de volver
+// directo -- pide history.back(), que dispara popstate igual que el
+// botón físico de Android, y es popBack() quien de verdad ejecuta
+// goBackToList() (ver la pila de handlers más arriba). Un solo camino
+// para ambos disparadores.
+appBarBack.onclick = () => history.back();
+
+appBarSettings.onclick = () => {
+    const settingsTool = tools.find(t => t.input === "settings");
+    if (settingsTool) selectTool(settingsTool);
+};
 
 async function selectTool(tool) {
     if (activeTool?.id === tool.id) return;
+    const cameFromList = !activeTool;
     await deactivateCurrentTool();
 
     activeTool = tool; isRunning = false;
     showToolView();
+    // Un nivel más adentro que la lista -- si el usuario (o el botón
+    // físico) aprieta "atrás" ahora, tiene que volver a la lista.
+    if (cameFromList) pushBack(goBackToList);
 
-    appBarIcon.textContent = tool.icon;
+    appBarIcon.innerHTML = window.AlejoIcons ? window.AlejoIcons.toolBadge(tool.input, 32) : "";
     appBarTitle.textContent = tool.name;
     appBarDesc.textContent = tool.description;
     styleOverride.textContent = tool.has_style ? await invoke("get_tool_style", { toolId: tool.id }) : "";
@@ -303,7 +368,7 @@ function appendLine(out, text, cls = "") { const s = el("span", { className: "ou
 function appendSeparator(out) { out.appendChild(el("hr", { className: "out-separator" })); }
 function resetBtn(label) { isRunning = false; const b = document.getElementById("run-btn"); if (b) { b.disabled = false; b.textContent = label; } }
 function defaultOut(line, stream, out) { appendLine(out, line, stream === "stderr" ? "error" : classifyLine(line)); }
-function defaultDone(label) { return (code, out) => { appendSeparator(out); appendLine(out, code === 0 ? "✓ Completado" : `✗ Código ${code}`, code === 0 ? "success" : "error"); resetBtn(label); }; }
+function defaultDone(label) { return (code, out) => { appendSeparator(out); appendLine(out, code === 0 ? "Completado" : `Código ${code}`, code === 0 ? "success" : "error"); resetBtn(label); }; }
 
 document.addEventListener("contextmenu", e => e.preventDefault());
 

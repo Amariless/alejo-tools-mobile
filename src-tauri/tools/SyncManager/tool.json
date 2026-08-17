@@ -1,6 +1,5 @@
 {
   "name": "Sincronización",
-  "icon": "🔄",
   "description": "Cliente de Syncthing-Android",
   "input": "syncmanager",
   "persistent": true

@@ -83,7 +83,13 @@ fn list_tools() -> Vec<ToolInfo> {
             has_style:   embedded_exists(&format!("{id}/style.css")),
             has_ui:      embedded_exists(&format!("{id}/ui.js")),
             name:        json["name"].as_str().unwrap_or("Sin nombre").to_string(),
-            icon:        json["icon"].as_str().unwrap_or("🔧").to_string(),
+            // NUEVO: el campo ya no se usa para nada visual -- el ícono de
+            // cada herramienta ahora es un SVG con color asignado por
+            // `input` (ver src/icons.js, pedido explícito del usuario de
+            // no usar más emoji en la app). Se mantiene el campo en la
+            // struct/JSON por compatibilidad con tool.json existentes,
+            // pero vacío por default.
+            icon:        json["icon"].as_str().unwrap_or("").to_string(),
             description: json["description"].as_str().unwrap_or("").to_string(),
             input:       json["input"].as_str().unwrap_or("text").to_string(),
             persistent:  json["persistent"].as_bool().unwrap_or(false),

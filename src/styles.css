@@ -1,44 +1,69 @@
 /* styles.css — shell de Alejo Tools Mobile.
  *
  * Layout fijo pensado para teléfono: app-bar arriba, contenido scrolleable
- * al medio. Navegación por lista (patrón estándar Android/iOS, pedido del
- * usuario -- antes era una barra de pestañas siempre visible abajo): la
+ * al medio. Navegación por lista (patrón estándar Android/iOS): la
  * pantalla de inicio muestra todas las herramientas como lista, tocar una
- * entra a pantalla completa con una flecha "←" en el app-bar para volver.
- * Claro/oscuro sigue prefers-color-scheme del sistema -- no hay selector
- * de tema todavía (eso vive en Settings, que todavía no se portó).
+ * entra a pantalla completa con una flecha "←" en el app-bar para volver
+ * (o el botón físico de Android, ver main.js). Claro/oscuro sigue
+ * prefers-color-scheme del sistema.
+ *
+ * NUEVO (rediseño visual, pedido del usuario -- "se ve demasiado fea y
+ * básica"): sistema de tokens más completo (sombras/elevación, escala de
+ * radios, transiciones), tarjetas con feedback táctil real (press state),
+ * jerarquía tipográfica más marcada, y estilos propios para
+ * input[type=range] -- antes heredaba el mismo padding/border que un
+ * <input type=text>, lo cual además de verse mal rompía el área de
+ * arrastre real del thumb nativo (el bug reportado de "los sliders solo
+ * cambian con clic").
  */
 
 :root {
   --bg:            #f4f4f2;
   --surface:       #ffffff;
   --surface-alt:   #ececec;
+  --surface-hover: #f8f6f2;
   --text:          #16140f;
   --text-muted:    #6b6558;
-  --border:        #ddd8ce;
+  --border:        #e3ded2;
   --accent:        #f0a500;
+  --accent-soft:   #fdf1d6;
   --accent-text:   #16140f;
   --success:       #2f9e44;
   --error:         #e03131;
   --warning:       #f08c00;
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+
+  --shadow-sm: 0 1px 2px rgba(20, 16, 4, .05), 0 1px 1px rgba(20, 16, 4, .04);
+  --shadow-md: 0 4px 14px rgba(20, 16, 4, .08), 0 1px 3px rgba(20, 16, 4, .06);
+  --shadow-lg: 0 10px 30px rgba(20, 16, 4, .14), 0 2px 6px rgba(20, 16, 4, .08);
+
+  --ease: cubic-bezier(.2, .7, .3, 1);
 
   color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg:          #0c0b09;
-    --surface:      #17140f;
-    --surface-alt:  #201c14;
-    --text:         #ece6d8;
-    --text-muted:   #948a72;
-    --border:       #2c2618;
-    --accent:       #f0a500;
-    --accent-text:  #0c0b09;
+    --bg:            #0c0b09;
+    --surface:       #18150f;
+    --surface-alt:   #221d14;
+    --surface-hover: #241f16;
+    --text:          #ece6d8;
+    --text-muted:    #9a8f76;
+    --border:        #2e2818;
+    --accent:        #f0a500;
+    --accent-soft:   #332608;
+    --accent-text:   #0c0b09;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .35), 0 1px 1px rgba(0, 0, 0, .3);
+    --shadow-md: 0 4px 14px rgba(0, 0, 0, .45), 0 1px 3px rgba(0, 0, 0, .35);
+    --shadow-lg: 0 10px 30px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .4);
   }
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
 html, body {
   margin: 0;
@@ -54,6 +79,7 @@ body {
   background: var(--bg);
   -webkit-tap-highlight-color: transparent;
   user-select: none;
+  -webkit-font-smoothing: antialiased;
 }
 
 #app {
@@ -70,50 +96,63 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 12px;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px 14px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  z-index: 5;
 }
-#app-bar-back {
+#app-bar-back, #app-bar-settings {
   flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   padding: 0;
   border: none;
   background: none;
-  font-size: 1.3rem;
-  line-height: 1;
   color: var(--text);
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 999px;
+  transition: background-color .15s var(--ease), transform .1s var(--ease);
 }
-#app-bar-back.hidden { display: none; }
-/* Sin ícono/descripción en la pantalla de inicio (ver showList() en
-   main.js, que los deja vacíos) -- si quedaran vacíos ocupando espacio
-   igual, el título quedaría corrido sin necesidad. */
+#app-bar-back:active, #app-bar-settings:active { background: var(--surface-alt); transform: scale(.92); }
+#app-bar-back.hidden, #app-bar-settings.hidden { display: none; }
 #app-bar-icon:empty { display: none; }
 #app-bar-desc:empty { display: none; }
 #app-bar-icon {
-  font-size: 1.6rem;
+  flex: 0 0 auto;
   line-height: 1;
+  display: flex;
 }
-#app-bar-text { min-width: 0; }
+#app-bar-text { min-width: 0; flex: 1; }
 #app-bar-title {
   margin: 0;
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-size: 1.08rem;
+  font-weight: 800;
+  letter-spacing: -.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 #app-bar-desc {
-  margin: 2px 0 0;
+  margin: 1px 0 0;
   font-size: .78rem;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ── Ícono "badge" (ver icons.js) ─────────────────────── */
+.tool-badge {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 30%;
+  box-shadow: var(--shadow-sm);
 }
 
 /* ── Contenido ───────────────────────────────────────── */
@@ -130,8 +169,8 @@ body {
 #tool-list {
   display: flex;
   flex-direction: column;
-  padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
-  gap: 8px;
+  padding: 14px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+  gap: 10px;
 }
 #tool-list.hidden { display: none; }
 
@@ -147,23 +186,24 @@ body {
   align-items: center;
   gap: 14px;
   width: 100%;
-  padding: 14px;
+  padding: 12px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   text-align: left;
+  box-shadow: var(--shadow-sm);
+  transition: transform .12s var(--ease), box-shadow .12s var(--ease), background-color .12s var(--ease);
 }
-.tool-list-item-icon {
-  flex: 0 0 auto;
-  font-size: 1.6rem;
-  line-height: 1;
-  width: 36px;
-  text-align: center;
+.tool-list-item:active {
+  transform: scale(.98);
+  background: var(--surface-hover);
+  box-shadow: var(--shadow-sm);
 }
 .tool-list-item-text { flex: 1; min-width: 0; }
 .tool-list-item-name {
-  font-size: .95rem;
+  font-size: .96rem;
   font-weight: 700;
+  letter-spacing: -.005em;
 }
 .tool-list-item-desc {
   margin-top: 2px;
@@ -176,7 +216,8 @@ body {
 .tool-list-item-chevron {
   flex: 0 0 auto;
   color: var(--text-muted);
-  font-size: 1.3rem;
+  display: flex;
+  opacity: .6;
 }
 
 #tool-view {
@@ -191,7 +232,7 @@ body {
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 #tool-output {
@@ -213,10 +254,10 @@ body {
 }
 .input-label {
   font-size: .72rem;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: .04em;
+  letter-spacing: .05em;
 }
 
 input, select, textarea, button {
@@ -226,31 +267,94 @@ input, select, textarea, button {
 
 input, select, textarea {
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: 11px 12px;
   background: var(--surface);
   width: 100%;
+  transition: border-color .12s var(--ease), box-shadow .12s var(--ease);
 }
 input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 button {
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: 11px 16px;
   background: var(--surface-alt);
   cursor: pointer;
+  transition: transform .1s var(--ease), opacity .1s var(--ease), background-color .12s var(--ease);
 }
-button:active { opacity: .8; }
+button:active { opacity: .85; transform: scale(.97); }
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-text);
   font-weight: 700;
+  box-shadow: var(--shadow-sm);
 }
-button:disabled { opacity: .5; cursor: default; }
+button:disabled { opacity: .5; cursor: default; transform: none; }
+
+/* ── input[type=range] — thumb propio, más grande y fácil de arrastrar.
+   NUEVO: antes de esto no existía ninguna regla específica para range,
+   así que heredaba el border/padding/background de la regla genérica de
+   arriba -- eso deformaba la caja del control nativo y rompía el
+   arrastre del thumb (solo el tap directo llegaba a cambiar el valor).
+   -webkit-appearance:none + track/thumb propios evita el problema de
+   raíz además de verse mucho mejor. ────────────────────────────────── */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  height: 30px;
+  width: 100%;
+  /* NUEVO (bug real, confirmado con un drag simulado por adb): con
+     touch-action: pan-y, apenas el gesto tiene la mínima componente
+     vertical (inevitable en un dedo real, y hasta en un swipe
+     sintético), el WebView le entrega el gesto entero al contenedor con
+     scroll vertical (#content/#tool-input-area) en vez de dejar que el
+     slider nativo siga trackeando el arrastre horizontal -- el touch iba
+     "down" (fijaba el valor ahí, como un click) pero el "move" se lo
+     comía el scroll de la página. touch-action: none reserva el gesto
+     completo para el propio slider, sin competir con el scroll. */
+  touch-action: none;
+}
+input[type="range"]:focus { box-shadow: none; }
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 26px;
+  height: 26px;
+  margin-top: -11px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid var(--surface);
+  box-shadow: var(--shadow-md);
+}
+input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.08); }
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid var(--surface);
+  box-shadow: var(--shadow-md);
+}
 
 /* ── Salida de texto de herramientas ─────────────────── */
 .out-line {
@@ -259,12 +363,35 @@ button:disabled { opacity: .5; cursor: default; }
   white-space: pre-wrap;
   word-break: break-word;
 }
-.out-line.success { color: var(--success); }
-.out-line.error   { color: var(--error); }
+.out-line.success { color: var(--success); font-weight: 600; }
+.out-line.error   { color: var(--error); font-weight: 600; }
 .out-line.warning { color: var(--warning); }
 .out-line.dim     { color: var(--text-muted); }
 .out-separator {
   border: none;
   border-top: 1px dashed var(--border);
   margin: 8px 0;
+}
+
+/* ── Barra de progreso genérica (descargas, procesos largos) ────────
+   NUEVO: componente compartido para que cualquier herramienta muestre
+   feedback en vivo de un proceso largo, en vez de que cada una arme la
+   suya (ver Settings, que ya tenía un patrón parecido para las
+   actualizaciones -- este lo generaliza). */
+.progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width .18s var(--ease);
+}
+.progress-label {
+  font-size: .78rem;
+  color: var(--text-muted);
 }

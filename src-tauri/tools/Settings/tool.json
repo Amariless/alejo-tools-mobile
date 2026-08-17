@@ -1,6 +1,5 @@
 {
-  "name": "Alejo Tools",
-  "icon": "⚙️",
+  "name": "Configuración",
   "description": "Configuración y actualizaciones",
   "input": "settings",
   "persistent": false
