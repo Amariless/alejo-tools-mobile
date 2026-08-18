@@ -124,6 +124,8 @@ window._toolCtx = {
     pickFolder,
     checkPendingFolderPick,
     setChromeHidden,
+    captureFullCamera,
+    checkPendingCameraCapture,
     get activeTool()    { return activeTool; },
     get toolOutput()    { return toolOutput; },
     get toolInputArea() { return toolInputArea; },
@@ -160,6 +162,48 @@ async function pickFolder(key) {
 async function checkPendingFolderPick() {
     try {
         const res = await invoke("pick_folder_poll");
+        return res && res.ready ? res : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+// captureFullCamera: mismo mecanismo que pickFolder pero para abrir la
+// app de cámara COMPLETA del sistema (todos sus modos) en vez de la
+// mini-UI reducida de <input capture=environment> -- pedido explícito
+// del usuario (Creador de Texturas). Devuelve la ruta del archivo
+// capturado, o null si el usuario canceló / si el resultado nunca llegó.
+//
+// NUEVO -- bug real confirmado en vivo (mismo mecanismo que ya rompía el
+// selector de carpeta, ver la nota grande más arriba): la app de cámara
+// del sistema es TODAVÍA más pesada en memoria que DocumentsUI, así que
+// Android mata el proceso de esta app mientras está al frente con más
+// frecuencia -- confirmado viendo `pidof` dar vacío justo después de
+// sacar una foto. El polling de acá abajo se corta junto con el resto
+// del JS cuando eso pasa, aunque la foto SÍ se guardó y CameraCapture.kt
+// SÍ tiene el resultado esperando -- checkPendingCameraCapture(), como
+// checkPendingFolderPick(), permite recuperarlo al volver a entrar a la
+// herramienta en vez de perderlo.
+async function captureFullCamera(key) {
+    try { await invoke("camera_capture_start", { key }); } catch (e) { return null; }
+    for (let i = 0; i < 300; i++) { // hasta 1 minuto
+        await new Promise(r => setTimeout(r, 200));
+        try {
+            const res = await invoke("camera_capture_poll");
+            if (res && res.ready) return res.path || null;
+        } catch (e) { return null; }
+    }
+    return null;
+}
+
+// Consulta si quedó una foto pendiente de una captura de cámara que se
+// cortó a mitad (ver la nota grande en captureFullCamera) -- mismo
+// espíritu que checkPendingFolderPick(): quien la llame debe hacerlo no
+// solo durante el polling normal, sino también al volver a entrar a la
+// pantalla que la pidió, por si el proceso se reinició de por medio.
+async function checkPendingCameraCapture() {
+    try {
+        const res = await invoke("camera_capture_poll");
         return res && res.ready ? res : null;
     } catch (e) {
         return null;

@@ -9,7 +9,10 @@
 // Descargar Música (ver storage.rs), reutilizado tal cual.
 use tauri::AppHandle;
 
-fn textures_dir() -> std::path::PathBuf {
+// pub(crate): reusado por collections.rs -- las colecciones son
+// subcarpetas DENTRO de esta misma carpeta general de texturas (pedido
+// del usuario), no un árbol separado.
+pub(crate) fn textures_dir() -> std::path::PathBuf {
     std::path::PathBuf::from("/storage/emulated/0/Pictures/AlejoTools/Texturas")
 }
 
@@ -21,7 +24,7 @@ fn textures_dir() -> std::path::PathBuf {
 // el mismo dato en base64 (un string corto por byte vs. varios dígitos +
 // comas) -- para una textura de unos cientos de KB esa diferencia sí se
 // nota.
-fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut table = [255u8; 256];
     for (i, &c) in ALPHABET.iter().enumerate() {
@@ -44,6 +47,24 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
         }
     }
     Ok(out)
+}
+
+// pub(crate): reusado por camera.rs -- ver camera_read_as_data_url, la
+// contraparte de base64_decode de acá arriba (mismo motivo para no traer
+// una dependencia solo para esto).
+pub(crate) fn base64_encode(input: &[u8]) -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = *chunk.get(1).unwrap_or(&0);
+        let b2 = *chunk.get(2).unwrap_or(&0);
+        out.push(ALPHABET[(b0 >> 2) as usize] as char);
+        out.push(ALPHABET[(((b0 & 0x03) << 4) | (b1 >> 4)) as usize] as char);
+        out.push(if chunk.len() > 1 { ALPHABET[(((b1 & 0x0f) << 2) | (b2 >> 6)) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { ALPHABET[(b2 & 0x3f) as usize] as char } else { '=' });
+    }
+    out
 }
 
 #[tauri::command]

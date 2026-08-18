@@ -8,9 +8,24 @@
   gap: 14px;
 }
 
+/* ── Pestañas ── */
+.tx-tabs { display: flex; gap: 6px; }
+.tx-tab {
+  flex: 1;
+  padding: 9px 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  color: var(--text-muted);
+  font-size: .85rem;
+  font-weight: 600;
+}
+.tx-tab--active { background: var(--accent, #f97316); border-color: transparent; color: white; }
+
 .tx-hidden-input { display: none; }
 .tx-pick-row { display: flex; gap: 8px; }
 .tx-pick-row button { flex: 1; }
+.tx-pick-btn { display: flex; align-items: center; justify-content: center; gap: 7px; }
 
 .tx-empty {
   margin: 0;
@@ -20,6 +35,55 @@
   padding: 24px 0;
 }
 
+.tx-newphoto-btn { font-size: .8rem; color: var(--text-muted); background: transparent; }
+
+/* ── Recorte ── */
+/* NUEVO (bug real, encontrado en vivo): sin align-items acá, el default
+   "stretch" de flexbox estira .tx-crop-container (un ítem flex) a la
+   altura de .tx-crop-wrap -- como el contenedor no tiene fondo propio,
+   esa altura "de más" es invisible pero SIGUE interceptando toques (un
+   div sin fondo igual ocupa su caja de layout entera para hit-testing),
+   tapando los botones de "Recortar/Usar completa/Cancelar" que quedan
+   debajo aunque se vean perfectamente bien dibujados. flex-start hace que
+   el contenedor mida justo lo que mide la imagen adentro, ni un pixel más. */
+.tx-crop-wrap { display: flex; justify-content: center; align-items: flex-start; }
+.tx-crop-container {
+  position: relative;
+  max-width: 100%;
+  max-height: 55vh;
+  display: inline-block;
+  overflow: hidden;
+}
+.tx-crop-img { display: block; max-width: 100%; max-height: 55vh; user-select: none; -webkit-user-drag: none; }
+/* 4 franjas -- NO un box-shadow con spread gigante sobre .tx-crop-box
+   (ver el comentario grande en attachCropHandles/ui.js: eso rompía el
+   hit-testing de los botones de abajo en este WebView). */
+.tx-crop-mask { position: absolute; background: rgba(0, 0, 0, .45); pointer-events: none; }
+.tx-crop-mask--top { top: 0; left: 0; right: 0; }
+.tx-crop-mask--bottom { left: 0; right: 0; bottom: 0; }
+.tx-crop-mask--left { left: 0; }
+.tx-crop-mask--right { right: 0; }
+.tx-crop-box {
+  position: absolute;
+  border: 2px solid var(--accent, #f97316);
+}
+.tx-crop-handle {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  margin: -13px;
+  background: var(--accent, #f97316);
+  border: 2px solid white;
+  border-radius: 50%;
+  touch-action: none;
+}
+.tx-crop-handle--tl { top: 0; left: 0; }
+.tx-crop-handle--tr { top: 0; left: 100%; }
+.tx-crop-handle--bl { top: 100%; left: 0; }
+.tx-crop-handle--br { top: 100%; left: 100%; }
+.tx-crop-actions { display: flex; flex-direction: column; gap: 8px; }
+
+/* ── Slider + resultados ── */
 .tx-slider-row {
   display: flex;
   flex-direction: column;
@@ -43,26 +107,155 @@
   gap: 10px;
 }
 .tx-card {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md, 12px);
   padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.tx-card-title { font-size: .76rem; font-weight: 700; text-align: center; }
-.tx-canvas-wrap {
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--bg);
+.tx-card--selected { border-color: var(--accent, #f97316); box-shadow: 0 0 0 1px var(--accent, #f97316); }
+.tx-card-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent, #f97316);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
+.tx-card-title { font-size: .76rem; font-weight: 700; text-align: center; padding-right: 20px; }
+.tx-canvas-wrap { border-radius: 8px; overflow: hidden; background: var(--bg); }
 .tx-canvas { width: 100%; height: auto; display: block; }
-.tx-card button { width: 100%; padding: 6px; font-size: .78rem; }
 
-.tx-hint {
-  margin: 0;
-  font-size: .74rem;
+.tx-hint { margin: 0; font-size: .74rem; color: var(--text-muted); line-height: 1.4; }
+
+.tx-save-bar { position: sticky; bottom: 0; padding-top: 4px; }
+.tx-save-bar button { width: 100%; }
+
+/* ── Hojas de acciones / diálogos (Colecciones) ── */
+.tx-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 40;
+}
+.tx-sheet {
+  width: 100%;
+  max-width: 480px;
+  background: var(--surface);
+  border-radius: 16px 16px 0 0;
+  padding: 10px 14px calc(14px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.tx-sheet-title { font-size: .8rem; color: var(--text-muted); padding: 6px 4px 8px; }
+.tx-sheet-btn {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  text-align: left;
+  padding: 13px 10px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border);
+  font-size: .92rem;
+  color: var(--text);
+}
+.tx-sheet-btn-sub { font-size: .74rem; color: var(--text-muted); }
+.tx-sheet-btn--danger { color: var(--error); }
+.tx-sheet-btn--accent { color: var(--accent, #f97316); font-weight: 600; }
+.tx-sheet-cancel { color: var(--text-muted); justify-content: center; }
+
+.tx-dialog {
+  width: calc(100% - 40px);
+  max-width: 420px;
+  background: var(--surface);
+  border-radius: var(--radius-lg, 16px);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: auto;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.tx-dialog-title { font-weight: 700; }
+.tx-dialog-input { width: 100%; }
+.tx-dialog-actions { display: flex; gap: 8px; }
+.tx-dialog-actions button { flex: 1; }
+
+.tx-cat-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.tx-cat-chip {
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
   color: var(--text-muted);
-  line-height: 1.4;
+  font-size: .76rem;
+}
+.tx-cat-chip--active { background: var(--accent, #f97316); border-color: transparent; color: white; font-weight: 600; }
+
+/* ── Colecciones: lista ── */
+.tx-coll-wrap { display: flex; flex-direction: column; gap: 10px; }
+.tx-coll-search-row input { width: 100%; }
+.tx-coll-list { display: flex; flex-direction: column; gap: 8px; }
+.tx-coll-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+}
+.tx-coll-main { flex: 1; min-width: 0; }
+.tx-coll-name { font-weight: 700; font-size: .92rem; }
+.tx-coll-sub { font-size: .76rem; color: var(--text-muted); margin-top: 2px; }
+.tx-coll-dots { background: transparent; border: none; color: var(--text-muted); padding: 6px; display: flex; }
+
+/* ── Colecciones: detalle ── */
+.tx-back-btn { align-self: flex-start; background: transparent; border-color: transparent; color: var(--text-muted); font-size: .82rem; padding: 4px 0; }
+.tx-coll-detail { display: flex; flex-direction: column; gap: 10px; }
+.tx-coll-detail-title { font-size: 1.1rem; font-weight: 800; }
+.tx-img-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.tx-img-cell {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  overflow: hidden;
+}
+.tx-img-thumb { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; background: var(--bg); }
+.tx-img-name { font-size: .7rem; padding: 6px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx-img-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .55);
+  color: white;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }

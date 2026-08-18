@@ -28,7 +28,9 @@ use std::collections::HashMap;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 
+mod camera;
 mod clock;
+mod collections;
 mod downloader;
 mod epub;
 mod expenses;
@@ -196,6 +198,10 @@ pub fn run() {
             // herramienta que necesite elegir una carpeta)
             folder_picker::pick_folder_start,
             folder_picker::pick_folder_poll,
+            // Cámara nativa completa (Creador de Texturas)
+            camera::camera_capture_start,
+            camera::camera_capture_poll,
+            camera::camera_read_as_data_url,
             // Reloj (Pomodoro + reloj mundial + clima)
             clock::pomodoro_get_config,
             clock::pomodoro_set_config,
@@ -218,6 +224,14 @@ pub fn run() {
             expenses::expenses_set_currency,
             // Creador de Texturas
             textures::save_texture_png,
+            collections::collections_list,
+            collections::collections_create,
+            collections::collections_rename,
+            collections::collections_set_category,
+            collections::collections_delete,
+            collections::collections_list_images,
+            collections::collections_add_image,
+            collections::collections_remove_image,
             // Generador de Escenas
             scene_prompts::scene_prompts_list,
             scene_prompts::scene_prompts_save_all,
