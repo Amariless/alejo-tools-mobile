@@ -961,11 +961,38 @@ registerRenderer("scene", {
         const root = el("div", { className: "sg-root" });
         area.appendChild(root);
 
+        // NUEVO: reemplazo de los pictogramas de colores (🖌🕐📷💡📦🌧🎲) por
+        // el set de íconos propio de la app (ver icons.js) -- esta
+        // herramienta es de antes del pedido de "sin emoji" y había quedado
+        // afuera de esa pasada. "icon" es el nombre del glifo (para las
+        // tarjetas en la app); "label" es la palabra en español que se usa
+        // en el texto que se copia al portapapeles (ver sceneCopyText) --
+        // separado del ícono a propósito, porque ese texto se pega en
+        // herramientas externas (generadores de imágenes por IA) y ahí un
+        // emoji/nombre de glifo no aporta nada, una etiqueta corta sí.
         const TAG_META = {
-            paleta: { icon: "🖌" }, hora: { icon: "🕐" }, enfoque: { icon: "📷" },
-            iluminacion: { icon: "💡" }, prop: { icon: "📦" }, clima: { icon: "🌧" },
-            estiloVisualTag: { icon: "🎲" },
+            paleta: { icon: "palette", label: "Paleta" },
+            hora: { icon: "clock", label: "Hora" },
+            enfoque: { icon: "camera", label: "Enfoque" },
+            iluminacion: { icon: "bulb", label: "Iluminación" },
+            prop: { icon: "box", label: "Prop" },
+            clima: { icon: "wxRain", label: "Clima" },
+            estiloVisualTag: { icon: "dice", label: "Estilo visual" },
         };
+
+        // El emoji de cada estética viene de engine.js (Parte 1, copia
+        // verbatim del escritorio -- no se toca para no romper esa
+        // paridad). Acá solo se traduce ese emoji a un glifo propio para
+        // mostrarlo en la UI; si aparece una estética con un emoji no
+        // mapeado (no debería, cubre las 17 actuales), cae a "sparkle".
+        const EMOJI_TO_GLYPH = {
+            "🎥": "clapper", "🕹️": "gamepad", "🎨": "palette", "🌸": "flower",
+            "🕵️": "hat", "🩸": "drop", "🤖": "robot", "🌿": "leaf",
+            "🌀": "swirl", "🏛️": "columns", "🔺": "triangle", "🌾": "wheat",
+            "🎩": "tophat", "☢️": "radiation", "⚔️": "sword", "🚀": "rocket",
+            "🤠": "cowboyhat",
+        };
+        function styleGlyph(sc) { return EMOJI_TO_GLYPH[sc.esteticaIcono] || "sparkle"; }
 
         const S = {
             view: "gen", // gen | saved
@@ -984,9 +1011,9 @@ registerRenderer("scene", {
         function sceneCopyText(sc) {
             return [
                 sc.escena,
-                `${sc.esteticaIcono || ""} ${sc.estetica}`,
-                ...Object.entries(TAG_META).filter(([k]) => sc[k]).map(([k, m]) => `${m.icon} ${sc[k]}`),
-                sc.paletaHex ? `🎨 ${sc.paletaHex.join(", ")}` : null,
+                `Estética: ${sc.estetica}`,
+                ...Object.entries(TAG_META).filter(([k]) => sc[k]).map(([k, m]) => `${m.label}: ${sc[k]}`),
+                sc.paletaHex ? `Colores: ${sc.paletaHex.join(", ")}` : null,
             ].filter(Boolean).join("\n");
         }
 
@@ -1037,9 +1064,9 @@ registerRenderer("scene", {
         function copyText(text, btn) {
             navigator.clipboard.writeText(text).catch(() => {});
             if (btn) {
-                const orig = btn.textContent;
-                btn.textContent = "✓";
-                setTimeout(() => { btn.textContent = orig; }, 1200);
+                const orig = btn.innerHTML;
+                btn.innerHTML = window.AlejoIcons.glyph("check", 15);
+                setTimeout(() => { btn.innerHTML = orig; }, 1200);
             }
         }
 
@@ -1054,14 +1081,16 @@ registerRenderer("scene", {
         function renderCard(sc, opts) {
             const card = el("div", { className: "sg-card" });
             const banner = el("div", { className: "sg-banner" });
-            banner.innerHTML = `<span>${sc.esteticaIcono || "✨"}</span> ${sc.estetica}`;
+            banner.innerHTML = `${window.AlejoIcons.glyph(styleGlyph(sc), 15)} ${sc.estetica}`;
             card.appendChild(banner);
             card.appendChild(el("div", { className: "sg-title", textContent: sc.escena }));
 
             const tags = el("div", { className: "sg-tags" });
             Object.entries(TAG_META).forEach(([k, m]) => {
                 if (!sc[k]) return;
-                tags.appendChild(el("span", { className: "sg-tag", textContent: `${m.icon} ${sc[k]}` }));
+                const tag = el("span", { className: "sg-tag" });
+                tag.innerHTML = `${window.AlejoIcons.glyph(m.icon, 13)} ${sc[k]}`;
+                tags.appendChild(tag);
             });
             if (tags.children.length) card.appendChild(tags);
 
@@ -1078,20 +1107,26 @@ registerRenderer("scene", {
 
             const actions = el("div", { className: "sg-card-actions" });
             if (opts.savedView) {
-                const upBtn = el("button", { textContent: "▲", disabled: opts.idx === 0 });
+                const upBtn = el("button", { className: "sg-icon-btn", disabled: opts.idx === 0 });
+                upBtn.innerHTML = window.AlejoIcons.glyph("arrowUp", 16);
                 upBtn.onclick = () => moveSaved(opts.idx, -1);
-                const downBtn = el("button", { textContent: "▼", disabled: opts.idx === S.saved.length - 1 });
+                const downBtn = el("button", { className: "sg-icon-btn", disabled: opts.idx === S.saved.length - 1 });
+                downBtn.innerHTML = window.AlejoIcons.glyph("arrowDown", 16);
                 downBtn.onclick = () => moveSaved(opts.idx, 1);
-                const copyBtn = el("button", { textContent: "⧉ Copiar" });
+                const copyBtn = el("button", { className: "sg-btn-icon-label" });
+                copyBtn.innerHTML = `${window.AlejoIcons.glyph("copy", 15)} Copiar`;
                 copyBtn.onclick = (e) => copyText(sceneCopyText(sc), e.currentTarget);
-                const delBtn = el("button", { className: "sg-del-btn", textContent: "✕" });
+                const delBtn = el("button", { className: "sg-del-btn sg-icon-btn" });
+                delBtn.innerHTML = window.AlejoIcons.glyph("trash", 16);
                 delBtn.onclick = () => deleteSaved(opts.idx);
                 actions.append(upBtn, downBtn, copyBtn, delBtn);
             } else {
                 const already = isSaved(sc);
-                const saveBtn = el("button", { textContent: already ? "✓ Guardado" : "💾 Guardar", disabled: already });
+                const saveBtn = el("button", { className: "sg-btn-icon-label", disabled: already });
+                saveBtn.innerHTML = already ? `${window.AlejoIcons.glyph("check", 15)} Guardado` : `${window.AlejoIcons.glyph("bookmark", 15)} Guardar`;
                 saveBtn.onclick = () => saveScene(sc);
-                const copyBtn = el("button", { textContent: "⧉ Copiar" });
+                const copyBtn = el("button", { className: "sg-btn-icon-label" });
+                copyBtn.innerHTML = `${window.AlejoIcons.glyph("copy", 15)} Copiar`;
                 copyBtn.onclick = (e) => copyText(sceneCopyText(sc), e.currentTarget);
                 actions.append(saveBtn, copyBtn);
             }
@@ -1138,9 +1173,13 @@ registerRenderer("scene", {
 
             const estRow = el("div", { className: "input-row" });
             const estSel = el("select", {});
-            estSel.appendChild(el("option", { value: "aleatoria", textContent: "🎲 Aleatoria", selected: S.estetica === "aleatoria" }));
+            // NUEVO: sin emoji en las opciones -- un <select> nativo no
+            // puede mostrar SVG adentro de sus <option>, así que en vez de
+            // dejar el emoji suelto (única excepción al resto del rediseño)
+            // se saca directamente; el nombre solo alcanza de sobra acá.
+            estSel.appendChild(el("option", { value: "aleatoria", textContent: "Aleatoria", selected: S.estetica === "aleatoria" }));
             Object.entries(ESTETICAS).forEach(([id, e]) => {
-                estSel.appendChild(el("option", { value: id, textContent: `${e.icono} ${e.nombre}`, selected: id === S.estetica }));
+                estSel.appendChild(el("option", { value: id, textContent: e.nombre, selected: id === S.estetica }));
             });
             estSel.onchange = (e) => { S.estetica = e.target.value; };
             estRow.append(lbl("Estética"), estSel);
@@ -1162,19 +1201,22 @@ registerRenderer("scene", {
             const checksRow = el("div", { className: "sg-ctrl-block" });
             checksRow.appendChild(el("div", { className: "sg-ctrl-label", textContent: "INCLUIR EN SUGERENCIA" }));
             const checks = el("div", { className: "sg-checks" });
-            [["paleta", "🖌 Paleta de color"], ["hora", "🕐 Hora del día"], ["enfoque", "📷 Enfoque de cámara"],
-             ["iluminacion", "💡 Iluminación"], ["prop", "📦 Prop destacado"], ["clima", "🌧 Estado del clima"],
-             ["estiloVisual", "🎲 Estilo visual"]].forEach(([key, label]) => {
+            [["paleta", "palette", "Paleta de color"], ["hora", "clock", "Hora del día"], ["enfoque", "camera", "Enfoque de cámara"],
+             ["iluminacion", "bulb", "Iluminación"], ["prop", "box", "Prop destacado"], ["clima", "wxRain", "Estado del clima"],
+             ["estiloVisual", "dice", "Estilo visual"]].forEach(([key, iconName, label]) => {
                 const row = el("label", { className: "sg-check" });
                 const chk = el("input", { type: "checkbox", checked: S.extras[key] });
                 chk.onchange = (e) => { S.extras[key] = e.target.checked; };
-                row.append(chk, el("span", { textContent: label }));
+                const iconSpan = el("span", { className: "sg-check-icon" });
+                iconSpan.innerHTML = window.AlejoIcons.glyph(iconName, 15);
+                row.append(chk, iconSpan, el("span", { textContent: label }));
                 checks.appendChild(row);
             });
             checksRow.appendChild(checks);
             wrap.appendChild(checksRow);
 
-            const genBtn = el("button", { className: "primary sg-gen-btn", textContent: "✦ Generar escenas" });
+            const genBtn = el("button", { className: "primary sg-gen-btn sg-btn-icon-label" });
+            genBtn.innerHTML = `${window.AlejoIcons.glyph("sparkle", 16)} Generar escenas`;
             genBtn.onclick = generate;
             wrap.appendChild(genBtn);
 
@@ -1201,7 +1243,8 @@ registerRenderer("scene", {
                 if (S.scenes.length) {
                     const toolbar = el("div", { className: "sg-result-toolbar" });
                     toolbar.appendChild(el("span", { className: "sg-result-label", textContent: `${S.scenes.length} escenas generadas` }));
-                    const copyAllBtn = el("button", { textContent: S.copiedAll ? "✓ Copiado" : "Copiar todo" });
+                    const copyAllBtn = el("button", { className: "sg-btn-icon-label" });
+                    copyAllBtn.innerHTML = S.copiedAll ? `${window.AlejoIcons.glyph("check", 15)} Copiado` : `${window.AlejoIcons.glyph("copy", 15)} Copiar todo`;
                     copyAllBtn.onclick = copyAll;
                     toolbar.appendChild(copyAllBtn);
                     root.appendChild(toolbar);
@@ -1214,7 +1257,7 @@ registerRenderer("scene", {
                 }
             } else {
                 if (!S.saved.length) {
-                    root.appendChild(el("p", { className: "sg-empty", textContent: "Sin prompts guardados -- usá 💾 Guardar en cualquier escena generada." }));
+                    root.appendChild(el("p", { className: "sg-empty", textContent: "Sin prompts guardados -- usá el botón Guardar en cualquier escena generada." }));
                 } else {
                     const grid = el("div", { className: "sg-grid" });
                     S.saved.forEach((sc, idx) => grid.appendChild(renderCard(sc, { savedView: true, idx })));

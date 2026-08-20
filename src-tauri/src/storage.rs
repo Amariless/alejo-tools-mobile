@@ -13,7 +13,6 @@
 // el boot classpath), no de AndroidX.
 #[cfg(target_os = "android")]
 pub async fn has_all_files_access(app: &tauri::AppHandle) -> Result<bool, String> {
-    use jni::objects::JValue;
     use tauri::Manager;
 
     let window = app

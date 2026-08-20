@@ -26,7 +26,7 @@
 // sin JavaVM::attach_current_thread a mano.
 #[cfg(target_os = "android")]
 pub async fn install_apk(app: &tauri::AppHandle, path: &str) -> Result<(), String> {
-    use jni::objects::{JObject, JString, JValue};
+    use jni::objects::{JString, JValue};
     use tauri::Manager;
 
     let window = app

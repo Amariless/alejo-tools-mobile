@@ -68,8 +68,14 @@
 .sg-checks { display: flex; flex-direction: column; gap: 8px; }
 .sg-check { display: flex; align-items: center; gap: 8px; font-size: .84rem; }
 .sg-check input { width: 17px; height: 17px; }
+.sg-check-icon { display: flex; color: var(--text-muted); }
 
 .sg-gen-btn { width: 100%; padding: 12px; font-size: .95rem; }
+
+/* NUEVO: botones ícono+texto (Guardar, Copiar, Generar escenas...) --
+   mismo patrón que .tx-pick-btn en Creador de Texturas. */
+.sg-btn-icon-label { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.sg-icon-btn { display: flex; align-items: center; justify-content: center; flex: 0 0 auto !important; width: 34px; padding: 0 !important; }
 
 .sg-result-toolbar {
   display: flex;
@@ -108,12 +114,17 @@
 .sg-title { font-size: .92rem; font-weight: 600; line-height: 1.4; }
 .sg-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .sg-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: .72rem;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 20px;
   padding: 3px 9px;
+  color: var(--text-muted);
 }
+.sg-tag svg { flex: 0 0 auto; }
 .sg-hex-row { display: flex; gap: 6px; }
 .sg-hex-chip {
   width: 26px;
