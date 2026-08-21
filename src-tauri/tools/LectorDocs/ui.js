@@ -285,6 +285,23 @@ registerRenderer("lectordocs", {
             const b = S.tab === "pdf" ? S.pdf : S.books;
             root.appendChild(el("div", { className: "ld-folder-label", textContent: b.folder || "…" }));
 
+            // NUEVO: el usuario preguntó "no entiendo cómo convertir mis
+            // libros en .epub, los tengo como PDF" -- la respuesta real es
+            // que NO hace falta convertir nada: esta pestaña es solo para
+            // archivos .epub de verdad (más cómodos de leer porque el texto
+            // se re-acomoda al ancho de pantalla), pero un libro que ya
+            // tenés en PDF se lee directo desde la pestaña "PDF", con las
+            // mismas funciones (zoom, separación entre páginas, etc.) --
+            // convertir PDF a EPUB de verdad (reconstruir el texto en un
+            // formato "fluido") es un problema con pérdida y sin una buena
+            // solución genérica (ni las herramientas de escritorio hechas
+            // para eso, como Calibre, lo logran bien siempre), así que no
+            // tiene sentido meter acá un conversor que iba a dar resultados
+            // mediocres -- mejor aclarar la duda en la propia UI.
+            if (S.tab === "books") {
+                root.appendChild(el("p", { className: "ld-tab-hint", textContent: "Esta pestaña es para archivos .epub. Si tenés un libro como PDF no hace falta convertirlo -- abrilo directo desde la pestaña \"PDF\", ahí arriba." }));
+            }
+
             if (b.hasStorageAccess === false) {
                 const permCard = el("div", { className: "ld-perm-card" });
                 permCard.innerHTML = `
@@ -334,38 +351,102 @@ registerRenderer("lectordocs", {
             });
         }
 
-        // ── Gestos de una página de PDF: toque simple = mostrar/ocultar
-        // la barra, doble toque = zoom. Los dos compiten por el mismo
-        // "toque" así que van juntos acá (no como 2 listeners
-        // independientes, que se pisarían -- un doble toque haría
-        // parpadear la barra además de hacer zoom): el primer toque queda
-        // "pendiente" un instante corto por si llega un segundo cerca; si
-        // no llega, recién ahí se confirma como toque simple. El zoom en
-        // sí es doblar el ancho de la imagen y dejar que el scroll nativo
-        // del slot (overflow:auto) haga de "paneo" -- gratis, con inercia
-        // incluida, sin rastrear arrastre a mano. Se engancha UNA sola vez
-        // por slot (ver renderPdfReader) y no por cada carga/descarte de
-        // imagen -- la imagen de adentro se busca recién al toque, así que
-        // funciona sea cual sea la página que haya en ese momento. ──
+        // ── Gestos de una página de PDF: toque simple = mostrar/ocultar la
+        // barra, doble toque = zoom fijo (~2.2x), y pellizco de 2 dedos =
+        // zoom continuo real. Los tres compiten por el mismo puntero así
+        // que van juntos acá. El zoom (sea doble-toque o pellizco) es
+        // agrandar el ancho de la imagen en % y dejar que el scroll nativo
+        // del slot (overflow:auto, ver CSS) haga de "paneo" con un dedo --
+        // gratis, con inercia incluida. Se engancha UNA sola vez por slot
+        // (ver renderPdfReader) y no por cada carga/descarte de imagen -- la
+        // imagen de adentro se busca recién al toque, así que funciona sea
+        // cual sea la página que haya en ese momento.
+        //
+        // NUEVO (pedido del usuario -- "algunas veces no deja hacer zoom,
+        // solo con el doble tap"): antes NO había ningún manejo real de
+        // pellizco de 2 dedos, solo el toggle de doble-toque a un ancho
+        // fijo -- de ahí que "el zoom" pareciera fallar la mayor parte del
+        // tiempo (cualquier intento de pellizco simplemente no hacía nada).
+        // Acá se trackean los 2 punteros activos y se calcula un nivel de
+        // zoom continuo a partir de cuánto cambia la distancia entre ellos,
+        // reescalando el ancho de la imagen en vivo y ajustando el scroll
+        // del slot para que el punto que queda entre los dedos se mantenga
+        // aproximadamente fijo en pantalla (mismo truco que usan los
+        // visores de imágenes con scroll nativo: reescalar + reproyectar
+        // scrollLeft/scrollTop, sin reinventar el paneo con transforms).
         function attachPdfSlotGestures(slotEl, onSingleTap) {
             let downX = 0, downY = 0, downT = 0, pendingSingle = null;
-            slotEl.addEventListener("pointerdown", (e) => { downX = e.clientX; downY = e.clientY; downT = Date.now(); });
+            const MIN_SCALE = 1, MAX_SCALE = 3.2, DOUBLE_TAP_SCALE = 2.2;
+            let scale = 1; // 1 = sin zoom
+            const pointers = new Map(); // pointerId -> {x, y}
+            let pinchStartDist = 0, pinchStartScale = 1;
+
+            function currentImg() { return slotEl.querySelector(".ld-pdf-slot-img"); }
+
+            function setScale(newScale, midClientX, midClientY) {
+                const imgEl = currentImg();
+                if (!imgEl) return;
+                newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
+                const rect = slotEl.getBoundingClientRect();
+                const midLocalX = (midClientX ?? rect.left + rect.width / 2) - rect.left;
+                const midLocalY = (midClientY ?? rect.top + rect.height / 2) - rect.top;
+                // Punto de contenido (en el espacio de píxeles ANTES de
+                // reescalar) que hay debajo del centro del gesto.
+                const contentX = slotEl.scrollLeft + midLocalX;
+                const contentY = slotEl.scrollTop + midLocalY;
+                const ratio = newScale / scale;
+                scale = newScale;
+                const zoomed = scale > 1.001;
+                slotEl.classList.toggle("ld-pdf-slot--zoomed", zoomed);
+                imgEl.classList.toggle("ld-pdf-slot-img--zoomed", zoomed);
+                imgEl.style.width = zoomed ? `${scale * 100}%` : "";
+                if (zoomed) {
+                    slotEl.scrollLeft = contentX * ratio - midLocalX;
+                    slotEl.scrollTop = contentY * ratio - midLocalY;
+                } else {
+                    slotEl.scrollLeft = 0; slotEl.scrollTop = 0;
+                }
+            }
+
+            slotEl.addEventListener("pointerdown", (e) => {
+                downX = e.clientX; downY = e.clientY; downT = Date.now();
+                if (e.pointerType === "touch") {
+                    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                    if (pointers.size === 2) {
+                        if (pendingSingle) { clearTimeout(pendingSingle); pendingSingle = null; }
+                        const pts = [...pointers.values()];
+                        pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+                        pinchStartScale = scale;
+                    }
+                }
+            });
+            slotEl.addEventListener("pointermove", (e) => {
+                if (!pointers.has(e.pointerId)) return;
+                pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                if (pointers.size === 2) {
+                    e.preventDefault();
+                    const pts = [...pointers.values()];
+                    const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+                    const mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+                    setScale(pinchStartScale * (dist / pinchStartDist), mid.x, mid.y);
+                }
+            });
+            function releasePointer(e) { pointers.delete(e.pointerId); }
             slotEl.addEventListener("pointerup", (e) => {
+                const wasPinching = pointers.size === 2;
+                releasePointer(e);
+                if (wasPinching) return; // el pellizco no cuenta como "toque"
                 const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
                 if (moved > 10 || Date.now() - downT > 300) return; // fue un scroll, no un toque
                 if (pendingSingle) {
                     clearTimeout(pendingSingle);
                     pendingSingle = null;
-                    const imgEl = slotEl.querySelector(".ld-pdf-slot-img");
-                    if (imgEl) {
-                        const zoomed = slotEl.classList.toggle("ld-pdf-slot--zoomed");
-                        imgEl.classList.toggle("ld-pdf-slot-img--zoomed", zoomed);
-                        if (!zoomed) { slotEl.scrollTop = 0; slotEl.scrollLeft = 0; }
-                    }
+                    setScale(scale > 1.001 ? 1 : DOUBLE_TAP_SCALE, e.clientX, e.clientY);
                     return;
                 }
                 pendingSingle = setTimeout(() => { pendingSingle = null; onSingleTap(); }, 280);
             });
+            slotEl.addEventListener("pointercancel", releasePointer);
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -374,7 +455,7 @@ registerRenderer("lectordocs", {
         async function openPdfReader(file) {
             S.reader = {
                 format: "pdf", file, sessionId: null, pageCount: 0,
-                orientation: "vertical", mode: "continuous",
+                orientation: "vertical", mode: "continuous", pageGap: false,
                 currentPage: 0, pages: {}, slotEls: {}, observer: null,
                 chromeVisible: true, saveTimer: null, guessAspect: 1.4,
             };
@@ -507,7 +588,17 @@ registerRenderer("lectordocs", {
                 b.onclick = () => { r.mode = val; rebuildPdfReaderView(); };
                 modeGroup.appendChild(b);
             });
-            controls.append(orientGroup, modeGroup);
+            // NUEVO: pedido del usuario -- toggle para agregar/quitar el
+            // espacio visual entre páginas (antes no existía ninguna forma
+            // de separarlas). Un solo botón (no un par de toggle como
+            // orientación/modo) porque es un simple on/off, no una
+            // elección entre dos modos exclusivos.
+            const gapGroup = el("div", { className: "ld-reader-toggle-group" });
+            const gapBtn = el("button", { className: `ld-reader-toggle${r.pageGap ? " ld-reader-toggle--active" : ""}`, innerHTML: window.LectorIcons.glyph(r.pageGap ? "spacingOn" : "spacingOff", 18) });
+            gapBtn.onclick = () => { r.pageGap = !r.pageGap; rebuildPdfReaderView(); };
+            gapGroup.appendChild(gapBtn);
+
+            controls.append(orientGroup, modeGroup, gapGroup);
             bar.appendChild(controls);
             return bar;
         }
@@ -524,6 +615,7 @@ registerRenderer("lectordocs", {
             wrap.appendChild(renderPdfToolbar());
 
             const scrollClasses = ["ld-pdf-scroll", r.orientation === "horizontal" ? "ld-pdf-scroll--horizontal" : "ld-pdf-scroll--vertical", r.mode === "paginated" ? "ld-pdf-scroll--paginated" : "ld-pdf-scroll--continuous"];
+            if (r.pageGap) scrollClasses.push("ld-pdf-scroll--gap");
             const container = el("div", { className: scrollClasses.join(" ") });
             r.slotEls = {};
             for (let i = 0; i < r.pageCount; i++) {

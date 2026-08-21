@@ -27,6 +27,17 @@
   word-break: break-all;
 }
 
+.ld-tab-hint {
+  margin: 8px 16px 0;
+  padding: 10px 12px;
+  font-size: .78rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+}
+
 .ld-perm-card {
   margin: 16px;
   padding: 14px;
@@ -181,6 +192,14 @@
   top: 0; left: 0; right: 0;
   z-index: 2;
   display: flex;
+  flex-wrap: wrap; /* NUEVO: .ld-reader-controls pide width:100% (para
+    quedar en su propia fila, alineado a la derecha) pero sin flex-wrap acá
+    ese 100% se calcula igual contra el ancho del contenedor y "empuja" el
+    resto -- back/título/página se apretaban y los botones de
+    orientación/modo/separación quedaban corridos fuera del borde derecho
+    de la pantalla, inalcanzables (bug real, visto en vivo). Con wrap,
+    controls no entra en la primera fila junto a los otros 3 (world tiene
+    ancho fijo/auto, controls pide 100%) y cae solo a la fila de abajo. */
   align-items: center;
   gap: 10px;
   padding: calc(env(safe-area-inset-top, 0px) + 10px) 10px 10px;
@@ -193,6 +212,10 @@
 .ld-reader-back {
   flex: 0 0 auto;
   width: 34px; height: 34px;
+  padding: 0; /* si no, hereda "padding: 11px 16px" del <button> genérico
+    (src/styles.css) y con box-sizing:border-box eso deja ~2px de ancho de
+    contenido -- el chevron de 22px se aplasta y se ve "como un punto"
+    (bug real reportado por el usuario, confirmado leyendo el CSS). */
   background: transparent;
   border: none;
   color: var(--text);
@@ -210,7 +233,13 @@
   white-space: nowrap;
 }
 .ld-reader-page-label { font-size: .74rem; color: var(--text-muted); flex: 0 0 auto; }
-.ld-reader-controls { display: flex; gap: 6px; flex: 0 0 auto; width: 100%; justify-content: flex-end; margin-top: 6px; }
+/* flex-wrap: NUEVO -- con el toggle de separación entre páginas sumado a
+   los de orientación y modo, 3 grupos ya no entran siempre en una sola
+   fila en pantallas angostas y quedaban botones inalcanzables fuera del
+   borde derecho (bug real, visto en vivo en el emulador). Envolviendo a
+   una segunda fila (siguen alineados a la derecha en cada fila gracias a
+   justify-content) todos quedan siempre tocables. */
+.ld-reader-controls { display: flex; flex-wrap: wrap; gap: 6px; flex: 0 0 auto; width: 100%; justify-content: flex-end; margin-top: 6px; }
 .ld-reader-toggle-group { display: flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
 .ld-reader-toggle {
   background: transparent;
@@ -247,6 +276,15 @@
 /* Paginado: cada página ocupa la pantalla entera y el scroll queda
    "enganchado" (scroll-snap) -- se siente como pasar hojas. */
 .ld-pdf-scroll--paginated .ld-pdf-slot { width: 100%; height: 100%; flex: 0 0 100%; scroll-snap-align: start; aspect-ratio: unset !important; }
+
+/* NUEVO: separación entre páginas (toggle pedido por el usuario) -- solo
+   tiene sentido en modo continuo (en paginado cada página ya ocupa toda
+   la pantalla con scroll-snap, agregarle margen rompería el encaje). Un
+   fondo intermedio entre páginas (en vez de dejar ver el fondo oscuro del
+   lector directamente) para que la separación se note como "aire" y no
+   como un hueco negro perdido. */
+.ld-pdf-scroll--gap.ld-pdf-scroll--continuous.ld-pdf-scroll--vertical .ld-pdf-slot { margin-bottom: 14px; }
+.ld-pdf-scroll--gap.ld-pdf-scroll--continuous.ld-pdf-scroll--horizontal .ld-pdf-slot { margin-right: 14px; }
 
 .ld-pdf-slot-img { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; }
 .ld-pdf-scroll--continuous .ld-pdf-slot-img { width: 100%; height: auto; }

@@ -251,6 +251,8 @@
   right: 6px;
   width: 26px;
   height: 26px;
+  padding: 0; /* mismo bug que .ld-reader-back: sin esto hereda el padding
+    del <button> genérico y el ícono de basura queda aplastado/invisible. */
   border-radius: 50%;
   background: rgba(0, 0, 0, .55);
   color: white;

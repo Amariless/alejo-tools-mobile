@@ -191,17 +191,30 @@ registerRenderer("creadortexturas", {
                     e.stopPropagation();
                     const startRect = containerEl.getBoundingClientRect();
                     const start = { ...S.cropBox };
+                    // Bordes ABSOLUTOS fijos: el borde opuesto a la esquina
+                    // que se arrastra no se mueve nunca. Antes se calculaba
+                    // x/w (o y/h) por separado y se resolvía el choque entre
+                    // ellos DESPUÉS con un clamp posicional -- eso hacía que
+                    // si arrastrabas "br" bien afuera del borde derecho, `w`
+                    // quedaba sin tope y el clamp de `x` (a 1-w, negativo)
+                    // lo mandaba de golpe a 0, con `w` reclamado a 1 en el
+                    // paso siguiente: el recuadro "saltaba" a cubrir toda la
+                    // imagen en vez de simplemente detenerse en el borde
+                    // (bug real reportado por el usuario). Clampeando cada
+                    // borde arrastrado directo contra [0,1] y contra el
+                    // borde fijo opuesto (con margen MIN) no hay ningún paso
+                    // intermedio que pueda producir ese salto.
+                    const fixedLeft = start.x, fixedTop = start.y;
+                    const fixedRight = start.x + start.w, fixedBottom = start.y + start.h;
                     function move(ev) {
                         const dx = (ev.clientX - e.clientX) / startRect.width;
                         const dy = (ev.clientY - e.clientY) / startRect.height;
-                        let { x, y, w, h } = start;
-                        if (corner.includes("l")) { x = Math.min(start.x + start.w - MIN, start.x + dx); w = start.w - (x - start.x); }
-                        if (corner.includes("r")) { w = Math.max(MIN, start.w + dx); }
-                        if (corner.includes("t")) { y = Math.min(start.y + start.h - MIN, start.y + dy); h = start.h - (y - start.y); }
-                        if (corner.includes("b")) { h = Math.max(MIN, start.h + dy); }
-                        x = Math.max(0, Math.min(x, 1 - w)); y = Math.max(0, Math.min(y, 1 - h));
-                        w = Math.min(w, 1 - x); h = Math.min(h, 1 - y);
-                        S.cropBox = { x, y, w, h };
+                        let left = fixedLeft, top = fixedTop, right = fixedRight, bottom = fixedBottom;
+                        if (corner.includes("l")) left = Math.max(0, Math.min(fixedRight - MIN, start.x + dx));
+                        if (corner.includes("r")) right = Math.min(1, Math.max(fixedLeft + MIN, fixedRight + dx));
+                        if (corner.includes("t")) top = Math.max(0, Math.min(fixedBottom - MIN, start.y + dy));
+                        if (corner.includes("b")) bottom = Math.min(1, Math.max(fixedTop + MIN, fixedBottom + dy));
+                        S.cropBox = { x: left, y: top, w: right - left, h: bottom - top };
                         applyBoxStyle();
                     }
                     function up() {
@@ -270,7 +283,13 @@ registerRenderer("creadortexturas", {
         }
 
         function computeNormalMap() {
-            const c = document.createElement("canvas");
+            // Reusa el mismo elemento <canvas> si ya existe (en vez de crear
+            // uno nuevo cada vez) -- así el slider de fuerza puede repintarlo
+            // en cada "input" (mientras se arrastra) sin tener que tocar el
+            // DOM ni volver a llamar a renderView(): el <canvas> ya montado
+            // en la tarjeta de resultado se actualiza en el lugar. Asignar
+            // width/height a un canvas existente ya lo limpia solo.
+            const c = S.normalCanvas instanceof HTMLCanvasElement ? S.normalCanvas : document.createElement("canvas");
             c.width = S.width; c.height = S.height;
             const ctx = c.getContext("2d");
             const out = ctx.createImageData(S.width, S.height);
@@ -656,10 +675,17 @@ registerRenderer("creadortexturas", {
             strengthRow.appendChild(strengthLabel);
             const slider = el("input", { type: "range", min: "0.5", max: "6", step: "0.1", value: String(S.strength) });
             slider.oninput = (e) => {
+                // NUEVO: antes esto solo actualizaba el número y el mapa
+                // normal recién se recalculaba en "change" (al soltar) --
+                // el usuario pidió que se vea en vivo. computeNormalMap()
+                // repinta el <canvas> ya montado en la tarjeta (ver el
+                // comentario ahí) sin reconstruir el DOM, así que es seguro
+                // llamarlo en cada evento de arrastre sin cortar el gesto
+                // del slider ni perder el foco.
                 S.strength = parseFloat(e.target.value);
                 strengthLabel.textContent = `Fuerza del relieve: ${S.strength.toFixed(1)}`;
+                computeNormalMap();
             };
-            slider.onchange = () => { computeNormalMap(); renderView(); };
             strengthRow.appendChild(slider);
             root.appendChild(strengthRow);
 
