@@ -1,6 +1,6 @@
 [package]
 name = "alejo-tools-mobile"
-version = "0.1.22"
+version = "0.1.23"
 description = "Alejo Tools Mobile"
 authors = ["Amariles"]
 edition = "2021"
