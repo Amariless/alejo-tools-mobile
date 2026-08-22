@@ -6,22 +6,22 @@
 // guardar) y "Colecciones" (organizar lo ya guardado).
 //
 // NUEVO (pedido grande del usuario, esta es la reescritura completa):
-//   - "Tomar foto" ahora abre la app de cámara del sistema (MediaStore.
-//     ACTION_IMAGE_CAPTURE con EXTRA_OUTPUT propio, vía
-//     ActivityResultContracts.TakePicture()) en vez de la mini-UI reducida
-//     que daba <input capture=environment> del WebView -- ver
-//     ctx.captureFullCamera en main.js / camera.rs / CameraCapture.kt. Esto
-//     es lo más "completo" que la API pública de Android permite pedir: no
-//     existe ningún extra estándar para forzar un modo (Pro/macro/noche)
-//     específico, eso lo decide la app de cámara que responda el intent.
-//     CONFIRMADO EN VIVO (usuario con Redmi Note 12 Pro / MIUI): la cámara
-//     de MIUI, cuando la lanza un intent de terceros así, se abre en una UI
-//     simplificada sin selector de modos -- es una restricción del lado de
-//     esa app de cámara, no algo que este intent pueda evitar. Workaround
-//     real: sacar la foto con la app de cámara normal (con Pro/macro) y
-//     traerla con "Elegir de galería", que sí conserva resolución completa.
+//   - "Tomar foto" abre una pantalla de cámara PROPIA (CameraX, ver
+//     MacroCameraActivity.kt / ctx.captureFullCamera en main.js /
+//     camera.rs / CameraCapture.kt) con un slider de enfoque manual --
+//     eso es lo que hace falta para "modo macro" de verdad (poder enfocar
+//     bien de cerca, clave para fotografiar texturas). Antes abría la app
+//     de cámara del SISTEMA por intent (MediaStore.ACTION_IMAGE_CAPTURE),
+//     que es lo más "completo" que permite pedir la API pública de
+//     Android -- pero "completo según la API" no significa "con todos los
+//     modos": cada fabricante decide qué UI mostrarle a un intent de
+//     terceros, y CONFIRMADO EN VIVO (usuario con Redmi Note 12 Pro /
+//     MIUI) esa cámara se abría en una UI simplificada sin selector de
+//     modos ni enfoque manual, sin ningún extra público para evitarlo. Una
+//     pantalla de cámara propia no depende de esa decisión ajena.
 //     "Elegir de galería" sigue usando el <input type=file> normal (el
-//     selector de archivos del sistema ya muestra todo bien).
+//     selector de archivos del sistema ya muestra todo bien) -- sirve como
+//     alternativa si alguna vez se prefiere sacar la foto con otra app.
 //   - Recorte: antes de procesar, se puede ajustar un recuadro sobre la
 //     foto (arrastrando las esquinas) o usar la foto completa.
 //   - Selección + guardado por lote: cada mapa generado es una "tarjeta"
@@ -564,7 +564,13 @@ registerRenderer("creadortexturas", {
 
             pickRow.append(cameraBtn, galleryInp, galleryBtn);
             root.appendChild(pickRow);
-            root.appendChild(el("p", { className: "tx-empty", textContent: "Sacale una foto de cerca y de frente a una superficie (piedra, madera, tela...) para generar su set de texturas. \"Tomar foto\" abre la app de cámara del sistema (no una mini-UI reducida) -- en la mayoría de los teléfonos eso ya te deja elegir modo Pro/macro ahí mismo. Si tu cámara igual se abre simplificada (pasa en algunos Xiaomi/MIUI), sacá la foto con tu app de cámara normal y después usá \"Elegir de galería\" acá." }));
+            // NUEVO: acortado -- antes explicaba en detalle la limitación
+            // de la cámara del sistema por fabricante (bug real, ver el
+            // comentario grande arriba), pero ahora que "Tomar foto" abre
+            // nuestra propia pantalla con enfoque manual esa aclaración ya
+            // no aplica -- una "descripción gigante" como esa era en sí
+            // misma otro bug reportado por el usuario.
+            root.appendChild(el("p", { className: "tx-empty", textContent: "Sacale una foto de cerca y de frente a una superficie (piedra, madera, tela...) para generar su set de texturas. \"Tomar foto\" incluye un control de enfoque manual (modo macro) para las tomas de cerca." }));
         }
 
         function renderCrop() {

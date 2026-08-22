@@ -1,6 +1,7 @@
 package com.alejo.toolsmobile
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
@@ -28,6 +29,15 @@ class MainActivity : TauriActivity() {
   private lateinit var cameraCaptureLauncher: ActivityResultLauncher<Uri>
   private var pendingCameraOutputPath: String = ""
 
+  // NUEVO (Creador de Texturas -- modo macro real, ver
+  // MacroCameraActivity.kt): a diferencia de cameraCaptureLauncher (que
+  // delega a la app de cámara del sistema, sin permiso propio necesario),
+  // abrir NUESTRA propia pantalla de cámara con CameraX sí requiere pedir
+  // CAMERA en tiempo de ejecución -- mismo motivo de "registrar ANTES de
+  // STARTED" que los demás launchers de acá arriba.
+  private lateinit var cameraPermissionLauncher: ActivityResultLauncher<String>
+  private var pendingMacroCameraKey: String = ""
+
   // NUEVO -- qué configuración pidió el picker (ej. "music"), para que
   // FolderPicker.deliver() pueda avisarle al JS correcto incluso si el
   // proceso se reinició mientras el picker de DocumentsUI estaba al
@@ -42,6 +52,7 @@ class MainActivity : TauriActivity() {
     pendingFolderPickKey = savedInstanceState?.getString(STATE_PENDING_FOLDER_KEY) ?: ""
     pendingCameraKey = savedInstanceState?.getString(STATE_PENDING_CAMERA_KEY) ?: ""
     pendingCameraOutputPath = savedInstanceState?.getString(STATE_PENDING_CAMERA_PATH) ?: ""
+    pendingMacroCameraKey = savedInstanceState?.getString(STATE_PENDING_MACRO_CAMERA_KEY) ?: ""
 
     folderPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
       val forKey = pendingFolderPickKey
@@ -67,6 +78,20 @@ class MainActivity : TauriActivity() {
       CameraCapture.deliver(if (success) path else "", forKey)
     }
 
+    cameraPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+      val forKey = pendingMacroCameraKey
+      pendingMacroCameraKey = ""
+      if (granted) {
+        startActivity(Intent(this, MacroCameraActivity::class.java).putExtra(MacroCameraActivity.EXTRA_KEY, forKey))
+      } else {
+        // Usuario negó el permiso -- se resuelve como "cancelado sin
+        // foto", mismo contrato que cuando se cancela la cámara del
+        // sistema (path vacío), así el JS (captureFullCamera en main.js)
+        // no necesita distinguir los dos casos.
+        CameraCapture.deliver("", forKey)
+      }
+    }
+
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     capturePdfIntent(intent)
@@ -77,12 +102,14 @@ class MainActivity : TauriActivity() {
     outState.putString(STATE_PENDING_FOLDER_KEY, pendingFolderPickKey)
     outState.putString(STATE_PENDING_CAMERA_KEY, pendingCameraKey)
     outState.putString(STATE_PENDING_CAMERA_PATH, pendingCameraOutputPath)
+    outState.putString(STATE_PENDING_MACRO_CAMERA_KEY, pendingMacroCameraKey)
   }
 
   companion object {
     private const val STATE_PENDING_FOLDER_KEY = "pendingFolderPickKey"
     private const val STATE_PENDING_CAMERA_KEY = "pendingCameraKey"
     private const val STATE_PENDING_CAMERA_PATH = "pendingCameraOutputPath"
+    private const val STATE_PENDING_MACRO_CAMERA_KEY = "pendingMacroCameraKey"
   }
 
   // NUEVO (Lector de PDF, manejador por defecto): launchMode="singleTask"
@@ -114,15 +141,17 @@ class MainActivity : TauriActivity() {
     runOnUiThread { folderPickerLauncher.launch(null) }
   }
 
-  /// Llamado por JNI desde camera.rs (camera_capture_start) -- lanza la
-  /// app de cámara COMPLETA del sistema (todos sus modos: Pro, macro,
-  /// noche, etc.) en vez de la mini-UI reducida que da
-  /// <input capture=environment> del WebView (el bug real reportado por
-  /// el usuario). MediaStore.ACTION_IMAGE_CAPTURE + EXTRA_OUTPUT hacia un
-  /// archivo propio (vía FileProvider, ya declarado en
-  /// AndroidManifest.xml) es la app de cámara REAL del teléfono, no un
-  /// picker minimalista -- guarda a máxima resolución en vez de la
-  /// miniatura que devolvía el flujo anterior.
+  /// Lanza la app de cámara COMPLETA del sistema vía intent
+  /// (MediaStore.ACTION_IMAGE_CAPTURE + EXTRA_OUTPUT). Es lo más completo
+  /// que permite la API pública de Android para delegarle la captura a
+  /// OTRA app -- pero "completo" según la API no significa "con todos los
+  /// modos": cada fabricante decide qué UI mostrarle a un intent de
+  /// terceros, y en varios (confirmado en vivo en MIUI/Xiaomi) eso es una
+  /// versión simplificada sin selector de modos. YA NO la usa Creador de
+  /// Texturas (ver launchMacroCamera, abajo, y camera.rs) pero se deja el
+  /// mecanismo funcionando -- es la forma más simple de sacar una foto sin
+  /// pedir el permiso CAMERA, por si alguna herramienta futura solo
+  /// necesita eso.
   fun launchCameraCapture(key: String) {
     val dir = File(cacheDir, "camera_capture")
     dir.mkdirs()
@@ -131,6 +160,26 @@ class MainActivity : TauriActivity() {
     pendingCameraOutputPath = file.absolutePath
     val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
     runOnUiThread { cameraCaptureLauncher.launch(uri) }
+  }
+
+  /// Llamado por JNI desde camera.rs (camera_capture_start) -- Creador de
+  /// Texturas. Lanza NUESTRA propia pantalla de cámara (MacroCameraActivity,
+  /// CameraX) en vez de delegar a la app de cámara del sistema: es la única
+  /// forma de garantizar enfoque manual real (modo macro) sin depender de
+  /// qué tan completa decida ser la UI de la cámara de cada fabricante ante
+  /// un intent de terceros (ver el comentario de launchCameraCapture).
+  /// Pide el permiso CAMERA en tiempo de ejecución si todavía no lo tiene
+  /// -- MacroCameraActivity en sí NO lo pide (asume que ya está concedido
+  /// para cuando arranca).
+  fun launchMacroCamera(key: String) {
+    if (checkSelfPermission(android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+      runOnUiThread {
+        startActivity(Intent(this, MacroCameraActivity::class.java).putExtra(MacroCameraActivity.EXTRA_KEY, key))
+      }
+    } else {
+      pendingMacroCameraKey = key
+      runOnUiThread { cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA) }
+    }
   }
 
   /// El picker devuelve una URI content://tree (ej.

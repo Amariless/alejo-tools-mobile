@@ -24,6 +24,15 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
+    <!-- NUEVO (Creador de Texturas: cámara propia con enfoque manual/modo
+         macro real, ver MacroCameraActivity.kt): a diferencia del intent
+         ACTION_IMAGE_CAPTURE (que delega la cámara a otra app y por eso no
+         necesita este permiso), usar CameraX DENTRO de nuestra propia app
+         sí lo requiere; se pide en tiempo de ejecución antes de abrir la
+         Activity, ver MainActivity.launchMacroCamera. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
@@ -84,6 +93,17 @@
                 <data android:scheme="file" android:mimeType="application/pdf" />
             </intent-filter>
         </activity>
+
+        <!-- NUEVO (Creador de Texturas: modo macro real, ver
+             MacroCameraActivity.kt): screenOrientation="portrait" porque el
+             resto de la app (y el PreviewView) asume ese layout; no hace
+             falta declarar intent-filter, se lanza siempre explícitamente
+             desde MainActivity.launchMacroCamera. -->
+        <activity
+            android:name=".MacroCameraActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.alejo_tools_mobile" />
 
         <provider
           android:name="androidx.core.content.FileProvider"

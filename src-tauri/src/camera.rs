@@ -1,14 +1,28 @@
-// camera.rs — cámara nativa completa (Creador de Texturas, pedido del
-// usuario) por JNI, mismo patrón job+poll que folder_picker.rs (ver ese
-// archivo para la explicación completa del "key" + por qué no basta con
-// una promesa que espera una sola vez: Android puede matar el proceso de
-// la app mientras la Activity de cámara del sistema está al frente).
+// camera.rs — cámara nativa (Creador de Texturas, pedido del usuario) por
+// JNI, mismo patrón job+poll que folder_picker.rs (ver ese archivo para la
+// explicación completa del "key" + por qué no basta con una promesa que
+// espera una sola vez: Android puede matar el proceso de la app mientras
+// la Activity de cámara está al frente).
 //
 // A diferencia de <input type=file capture=environment> del WebView
-// (usado en Paleta de Colores/Creador de Texturas hasta ahora, sigue
-// sirviendo para "Elegir de galería"), esto lanza la app de cámara REAL
-// del sistema con todos sus modos -- ver MainActivity.launchCameraCapture
-// y CameraCapture.kt.
+// (usado hasta ahora en Paleta de Colores, y en Creador de Texturas para
+// "Elegir de galería"), esto lanza una Activity de captura de foto
+// dedicada -- ver MainActivity.launchMacroCamera y CameraCapture.kt.
+//
+// NUEVO (pedido explícito del usuario -- "quiero modo Pro + macro, es muy
+// importante para texturas"): esto ANTES llamaba a
+// MainActivity.launchCameraCapture (la app de cámara del SISTEMA, vía
+// intent MediaStore.ACTION_IMAGE_CAPTURE) -- es lo más completo que
+// permite la API pública de Android para delegarle la captura a otra app,
+// pero "completo según la API" no significa "con todos los modos": cada
+// fabricante decide qué UI mostrarle a un intent de terceros, y en varios
+// (confirmado en vivo por el usuario en un Redmi Note 12 Pro / MIUI) esa
+// UI viene recortada, sin selector de modos ni enfoque manual. Ahora llama
+// a MainActivity.launchMacroCamera, que abre NUESTRA propia pantalla de
+// cámara (MacroCameraActivity, CameraX) con enfoque manual real -- ver el
+// comentario grande ahí. El contrato de salida (CameraCapture.deliver +
+// camera_capture_poll, más abajo) es EXACTAMENTE el mismo, así que no hace
+// falta tocar nada del lado JS más que el texto de la UI.
 use tauri::AppHandle;
 
 #[cfg(target_os = "android")]
@@ -26,9 +40,9 @@ async fn call_activity_launch_camera(app: &AppHandle, key: &str) -> Result<(), S
             handle.exec(move |env, activity, _webview| {
                 let result = (|| -> Result<(), String> {
                     let key_j = env.new_string(&key).map_err(|e| e.to_string())?;
-                    env.call_method(activity, "launchCameraCapture", "(Ljava/lang/String;)V", &[JValue::Object(&key_j)])
+                    env.call_method(activity, "launchMacroCamera", "(Ljava/lang/String;)V", &[JValue::Object(&key_j)])
                         .map(|_| ())
-                        .map_err(|e| format!("Error llamando launchCameraCapture: {e}"))
+                        .map_err(|e| format!("Error llamando launchMacroCamera: {e}"))
                 })();
                 let _ = tx.send(result);
             });

@@ -79,6 +79,26 @@ dependencies {
     // Kotlin<->Rust (JNI) que expone esto a los comandos de Tauri.
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
+    // NUEVO (Creador de Texturas, pedido explícito del usuario -- "quiero
+    // modo Pro + macro"): la cámara del SISTEMA invocada por intent
+    // (MediaStore.ACTION_IMAGE_CAPTURE, ver launchCameraCapture arriba) es
+    // la más completa que permite la API pública de Android, pero cada
+    // fabricante decide qué UI mostrarle a un intent de terceros -- en
+    // MIUI (confirmado en vivo por el usuario en un Redmi Note 12 Pro) eso
+    // es una versión simplificada SIN selector de modos. La única forma de
+    // garantizar control real (en particular, enfoque manual para
+    // fotografiar de cerca -- lo que en la UI de una cámara se llama "modo
+    // macro") es NO depender de la app de cámara de terceros y tener
+    // nuestra propia pantalla de captura -- ver MacroCameraActivity.kt.
+    // CameraX (no Camera2 crudo) por su API mucho más simple para
+    // preview+captura, pero exponiendo igual el control manual de enfoque
+    // vía Camera2Interop/CaptureRequestOptions (androidx.camera.camera2) --
+    // ese puente es justamente lo que CameraX simplifica sobre Camera2 puro.
+    val cameraxVersion = "1.4.1"
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")

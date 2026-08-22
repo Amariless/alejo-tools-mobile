@@ -168,22 +168,28 @@ async function checkPendingFolderPick() {
     }
 }
 
-// captureFullCamera: mismo mecanismo que pickFolder pero para abrir la
-// app de cámara COMPLETA del sistema (todos sus modos) en vez de la
-// mini-UI reducida de <input capture=environment> -- pedido explícito
-// del usuario (Creador de Texturas). Devuelve la ruta del archivo
+// captureFullCamera: mismo mecanismo que pickFolder pero para abrir una
+// pantalla de captura de foto (Creador de Texturas) en vez de la mini-UI
+// reducida de <input capture=environment>. Devuelve la ruta del archivo
 // capturado, o null si el usuario canceló / si el resultado nunca llegó.
 //
-// NUEVO -- bug real confirmado en vivo (mismo mecanismo que ya rompía el
-// selector de carpeta, ver la nota grande más arriba): la app de cámara
-// del sistema es TODAVÍA más pesada en memoria que DocumentsUI, así que
-// Android mata el proceso de esta app mientras está al frente con más
-// frecuencia -- confirmado viendo `pidof` dar vacío justo después de
-// sacar una foto. El polling de acá abajo se corta junto con el resto
-// del JS cuando eso pasa, aunque la foto SÍ se guardó y CameraCapture.kt
-// SÍ tiene el resultado esperando -- checkPendingCameraCapture(), como
-// checkPendingFolderPick(), permite recuperarlo al volver a entrar a la
-// herramienta en vez de perderlo.
+// NUEVO -- del lado de Kotlin (camera_capture_start → MainActivity.
+// launchMacroCamera) esto ahora abre MacroCameraActivity (cámara propia
+// con CameraX + enfoque manual/modo macro) en vez de delegar a la app de
+// cámara del sistema por intent -- ver el comentario grande en
+// camera.rs para el porqué (bug real: en MIUI esa cámara se abría
+// simplificada, sin selector de modos). Acá del lado JS no cambia nada,
+// el contrato (key → poll → path) es el mismo.
+//
+// NUEVO (más viejo) -- bug real confirmado en vivo (mismo mecanismo que
+// ya rompía el selector de carpeta, ver la nota grande más arriba): una
+// Activity de cámara al frente es pesada en memoria, así que Android
+// puede matar el proceso de esta app mientras está abierta -- confirmado
+// viendo `pidof` dar vacío justo después de sacar una foto. El polling de
+// acá abajo se corta junto con el resto del JS cuando eso pasa, aunque la
+// foto SÍ se guardó y CameraCapture.kt SÍ tiene el resultado esperando --
+// checkPendingCameraCapture(), como checkPendingFolderPick(), permite
+// recuperarlo al volver a entrar a la herramienta en vez de perderlo.
 async function captureFullCamera(key) {
     try { await invoke("camera_capture_start", { key }); } catch (e) { return null; }
     for (let i = 0; i < 300; i++) { // hasta 1 minuto
@@ -430,7 +436,21 @@ async function selectTool(tool) {
         }
     } else {
         toolInputArea.style.display = "";
-        toolOutput.style.display = "";
+        // NUEVO (bug real reportado por el usuario -- "muchas herramientas
+        // quedaron con una caja gris abajo que no parece tener un
+        // objetivo"): #tool-output es el panel de log estilo consola del
+        // patrón viejo de escritorio (subprocesos vía runTool/appendLine,
+        // ver más abajo) -- NINGUNA de las herramientas mobile actuales lo
+        // usa (todas renderizan su UI propia entera dentro de
+        // toolInputArea), así que quedaba SIEMPRE vacío pero igual visible
+        // -- con el rediseño le dieron fondo/sombra/bordes redondeados
+        // propios, y una caja vacía con esa pinta se ve como un elemento
+        // roto en vez de simplemente invisible como antes. Ahora arranca
+        // oculto y solo runTool() (el único lugar que le escribe algo, ver
+        // más abajo) lo vuelve a mostrar -- si algún día una herramienta
+        // vuelve a necesitar el patrón de log de subprocesos, sigue
+        // funcionando igual.
+        toolOutput.style.display = "none";
         toolOutput.innerHTML = ""; toolInputArea.innerHTML = "";
         toolInputArea.style.cssText = "";
         getRenderer(tool.input).render(tool, toolInputArea, toolOutput);
@@ -439,6 +459,7 @@ async function selectTool(tool) {
 
 async function runTool(tool, args) {
     if (isRunning) return; isRunning = true;
+    toolOutput.style.display = ""; // ver nota en selectTool() -- solo se muestra si de verdad se usa
     toolOutput.innerHTML = ""; appendSeparator(toolOutput);
     const btn = document.getElementById("run-btn");
     if (btn) { btn.disabled = true; btn.textContent = "Ejecutando..."; }
