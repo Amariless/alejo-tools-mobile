@@ -22,8 +22,11 @@ import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
@@ -158,8 +161,38 @@ class MacroCameraActivity : AppCompatActivity() {
         providerFuture.addListener({
             try {
                 val provider = providerFuture.get()
-                val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
+                // NUEVO (bug real reportado por el usuario -- "la foto tiene
+                // más contenido del que veía antes de tomarla"): dos causas
+                // combinadas.
+                // 1) Sin fijar una estrategia de aspecto, Preview e
+                //    ImageCapture negocian resolución cada uno por su
+                //    cuenta y pueden terminar en relaciones DISTINTAS (ej.
+                //    16:9 el preview, 4:3 la captura) -- acá se fuerza la
+                //    MISMA para los dos (AspectRatioStrategy solo admite
+                //    4:3 o 16:9, no una relación arbitraria; 16:9 es la más
+                //    parecida a una pantalla de teléfono moderna).
+                // 2) Aun con la MISMA relación negociada, PreviewView por
+                //    default usa scaleType FILL_CENTER: como la pantalla es
+                //    más alta y angosta que cualquier stream 4:3/16:9,
+                //    "llenar" la vista significa recortar los bordes
+                //    laterales del stream -- el usuario ve ese recorte
+                //    angosto, pero ImageCapture guarda el cuadro COMPLETO
+                //    del stream (sin ese recorte extra), más ancho que lo
+                //    que se veía en pantalla. FIT_CENTER (ver abajo, sobre
+                //    previewView) muestra el cuadro completo tal cual sin
+                //    recortarlo -- con franjas negras arriba/abajo en vez de
+                //    "mentir" sobre el encuadre real, que es exactamente lo
+                //    que se termina guardando.
+                previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
+                val matchingAspect = ResolutionSelector.Builder()
+                    .setAspectRatioStrategy(AspectRatioStrategy(AspectRatio.RATIO_16_9, AspectRatioStrategy.FALLBACK_RULE_AUTO))
+                    .build()
+                val preview = Preview.Builder()
+                    .setResolutionSelector(matchingAspect)
+                    .build()
+                    .also { it.setSurfaceProvider(previewView.surfaceProvider) }
                 imageCapture = ImageCapture.Builder()
+                    .setResolutionSelector(matchingAspect)
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                     .build()
                 provider.unbindAll()
