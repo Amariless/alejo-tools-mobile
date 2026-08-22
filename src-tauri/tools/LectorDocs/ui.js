@@ -380,6 +380,21 @@ registerRenderer("lectordocs", {
             let scale = 1; // 1 = sin zoom
             const pointers = new Map(); // pointerId -> {x, y}
             let pinchStartDist = 0, pinchStartScale = 1;
+            // NUEVO (bug real reportado por el usuario -- "el zoom funciona
+            // fatal"): la versión anterior decidía si un pointerup era "el
+            // fin de un pellizco" mirando pointers.size EN ESE MOMENTO --
+            // pero un pellizco de 2 dedos genera DOS pointerup (uno por cada
+            // dedo al levantarse). El PRIMERO ve size==2 todavía (correcto,
+            // se ignora) pero para cuando llega el SEGUNDO, releasePointer
+            // del primero ya bajó size a 1 -- ese chequeo daba "false" y el
+            // código de abajo lo trataba como un toque suelto, a veces
+            // dsiparando el toggle de doble-toque-zoom (reseteando/saltando
+            // el nivel de zoom) justo al soltar los dedos del pellizco. Un
+            // flag separado que se prende al llegar a 2 punteros y se apaga
+            // recién cuando el ÚLTIMO puntero de ese gesto se levanta (no
+            // apenas uno de los dos) cubre los dos pointerup del pellizco
+            // por igual.
+            let pinchActive = false;
 
             function currentImg() { return slotEl.querySelector(".ld-pdf-slot-img"); }
 
@@ -413,6 +428,17 @@ registerRenderer("lectordocs", {
                 if (e.pointerType === "touch") {
                     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
                     if (pointers.size === 2) {
+                        pinchActive = true;
+                        // NUEVO: mientras dura el pellizco, este elemento
+                        // maneja el toque entero por su cuenta -- sin esto
+                        // el WebView puede interpretar el gesto de 2 dedos
+                        // como algo propio (zoom nativo de página, aunque
+                        // esté deshabilitado por el viewport, o el scroll
+                        // nativo de un solo dedo que ya usa este mismo
+                        // slot) y cancelar la secuencia a mitad de camino.
+                        // Se restaura al soltar (ver releasePointer) para no
+                        // romper el scroll nativo normal de un solo dedo.
+                        slotEl.style.touchAction = "none";
                         if (pendingSingle) { clearTimeout(pendingSingle); pendingSingle = null; }
                         const pts = [...pointers.values()];
                         pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
@@ -431,11 +457,17 @@ registerRenderer("lectordocs", {
                     setScale(pinchStartScale * (dist / pinchStartDist), mid.x, mid.y);
                 }
             });
-            function releasePointer(e) { pointers.delete(e.pointerId); }
+            function releasePointer(e) {
+                pointers.delete(e.pointerId);
+                if (pointers.size === 0) {
+                    pinchActive = false;
+                    slotEl.style.touchAction = "";
+                }
+            }
             slotEl.addEventListener("pointerup", (e) => {
-                const wasPinching = pointers.size === 2;
+                const wasPinching = pinchActive;
                 releasePointer(e);
-                if (wasPinching) return; // el pellizco no cuenta como "toque"
+                if (wasPinching) return; // ningún dedo de un pellizco cuenta como "toque"
                 const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
                 if (moved > 10 || Date.now() - downT > 300) return; // fue un scroll, no un toque
                 if (pendingSingle) {
@@ -503,6 +535,27 @@ registerRenderer("lectordocs", {
                 if (res.width && res.height) r.guessAspect = res.height / res.width;
                 const slot = r.slotEls[index];
                 if (slot) {
+                    // NUEVO (bug real reportado por el usuario -- "al hacer
+                    // zoom no cubre toda la pantalla, se queda haciendo zoom
+                    // dentro de su cuadro"): el placeholder de más arriba le
+                    // pone a la SLOT un aspect-ratio ESTIMADO (con el ancho/
+                    // alto de la última página cargada) para reservar
+                    // espacio mientras esta imagen real llega -- pero ese
+                    // aspect-ratio quedaba puesto para siempre (innerHTML="
+                    // " no lo toca, es un estilo inline del propio slot), así
+                    // que aunque la imagen real ya estuviera adentro, la caja
+                    // seguía con el alto/ancho FORZADO del cálculo viejo. Con
+                    // overflow:auto activado al hacer zoom, ese aspect-ratio
+                    // seguía fijando el alto visible del "viewport" de
+                    // scroll -- de ahí que el pellizco solo pudiera desplazar
+                    // la imagen agrandada DENTRO de esa caja chica en vez de
+                    // ocupar la pantalla entera. Al limpiarlo acá, la caja
+                    // vuelve a medir lo que mide su contenido real (y la
+                    // regla .ld-pdf-slot--zoomed de style.css puede forzarla
+                    // a ocupar toda la pantalla mientras está en zoom, sin
+                    // pelear contra un estilo inline que le gana en
+                    // especificidad).
+                    slot.style.aspectRatio = "";
                     slot.innerHTML = "";
                     slot.appendChild(el("img", { className: "ld-pdf-slot-img", src: r.pages[index].url }));
                 }

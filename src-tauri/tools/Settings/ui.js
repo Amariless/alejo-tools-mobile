@@ -21,10 +21,17 @@ registerRenderer("settings", {
         // una sola tarjeta. Array-driven a propósito: sumar una carpeta
         // más (ej. cuando se fusionen Lector de PDF/Libros) es agregar
         // una entrada acá, no repetir el bloque entero.
+        // NUEVO (bug real reportado por el usuario): antes había 2 entradas
+        // acá ("...--PDF" y "...--Libros") con carpetas independientes --
+        // el usuario configuró una sola pensando que aplicaba a las 2
+        // pestañas de Lector de Documentos (que se presenta como UNA sola
+        // herramienta) y la pestaña Libros seguía apuntando a su carpeta
+        // default vacía. Ahora es una sola entrada -- ver epub.rs, donde
+        // book_get_config ya lee siempre la carpeta compartida de pdf.rs
+        // en vez de tener la suya propia.
         const FOLDERS = [
             { key: "music", label: "Descargar Música", get: () => invoke("dl_get_config"), set: (folder) => invoke("dl_set_config", { folder }) },
-            { key: "pdf", label: "Lector de Documentos -- PDF", get: () => invoke("pdf_get_config"), set: (folder) => invoke("pdf_set_config", { folder }) },
-            { key: "books", label: "Lector de Documentos -- Libros", get: () => invoke("book_get_config"), set: (folder) => invoke("book_set_folder", { folder }) },
+            { key: "pdf", label: "Lector de Documentos (PDF y Libros)", get: () => invoke("pdf_get_config"), set: (folder) => invoke("pdf_set_config", { folder }) },
         ];
 
         wrap.innerHTML = `

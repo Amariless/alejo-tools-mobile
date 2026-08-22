@@ -66,6 +66,16 @@
 .tx-crop-box {
   position: absolute;
   border: 2px solid var(--accent, #f97316);
+  /* NUEVO (bug real reportado por el usuario -- arrastrar la caja entera
+     "se suelta sola" al segundo): a diferencia de .tx-crop-handle, esta
+     regla NO tenía touch-action:none -- sin eso, el WebView puede decidir
+     a medio gesto que el toque es en realidad un intento de scroll de
+     .tx-root (que sí tiene overflow-y:auto) y cancela la secuencia de
+     punteros con un pointercancel, cortando el arrastre. touch-action:none
+     le dice al navegador de entrada que este elemento maneja el toque
+     entero por su cuenta (dragMove en ui.js), sin gesto nativo con el que
+     competir -- mismo motivo por el que las esquinas ya lo tenían. */
+  touch-action: none;
 }
 .tx-crop-handle {
   position: absolute;

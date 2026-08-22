@@ -273,6 +273,20 @@
    como si fuera un documento largo. */
 .ld-pdf-scroll--continuous.ld-pdf-scroll--vertical .ld-pdf-slot { width: 100%; }
 .ld-pdf-scroll--continuous.ld-pdf-scroll--horizontal .ld-pdf-slot { height: 100%; flex: 0 0 auto; }
+/* NUEVO (bug real reportado por el usuario): en modo continuo vertical una
+   página más baja que la pantalla (su alto normal, sin zoom, mide lo que
+   corresponde a su contenido -- ver el cambio en loadPdfPage, ui.js, que
+   ahora limpia el aspect-ratio estimado del placeholder al llegar la
+   imagen real) tenía una caja de scroll (.ld-pdf-slot--zoomed usa
+   overflow:auto) del mismo alto chico de siempre, así que el pellizco solo
+   podía desplazar la imagen agrandada DENTRO de esa caja en vez de usar
+   la pantalla entera. Forzando el alto al 100% del contenedor mientras
+   está en zoom (el contenedor .ld-pdf-scroll ya mide la pantalla completa,
+   position:absolute;inset:0) el área de scroll para el paneo pasa a ser
+   toda la pantalla, sin importar qué tan chica sea la página real. Mismo
+   razonamiento para el ancho en modo horizontal. */
+.ld-pdf-scroll--continuous.ld-pdf-scroll--vertical .ld-pdf-slot--zoomed { height: 100%; }
+.ld-pdf-scroll--continuous.ld-pdf-scroll--horizontal .ld-pdf-slot--zoomed { width: 100%; }
 /* Paginado: cada página ocupa la pantalla entera y el scroll queda
    "enganchado" (scroll-snap) -- se siente como pasar hojas. */
 .ld-pdf-scroll--paginated .ld-pdf-slot { width: 100%; height: 100%; flex: 0 0 100%; scroll-snap-align: start; aspect-ratio: unset !important; }

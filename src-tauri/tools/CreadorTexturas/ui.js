@@ -6,10 +6,20 @@
 // guardar) y "Colecciones" (organizar lo ya guardado).
 //
 // NUEVO (pedido grande del usuario, esta es la reescritura completa):
-//   - "Tomar foto" ahora abre la app de cámara COMPLETA del sistema (con
-//     todos sus modos -- macro, Pro, noche, etc.) en vez de la mini-UI
-//     reducida que daba <input capture=environment> del WebView -- ver
-//     ctx.captureFullCamera en main.js / camera.rs / CameraCapture.kt.
+//   - "Tomar foto" ahora abre la app de cámara del sistema (MediaStore.
+//     ACTION_IMAGE_CAPTURE con EXTRA_OUTPUT propio, vía
+//     ActivityResultContracts.TakePicture()) en vez de la mini-UI reducida
+//     que daba <input capture=environment> del WebView -- ver
+//     ctx.captureFullCamera en main.js / camera.rs / CameraCapture.kt. Esto
+//     es lo más "completo" que la API pública de Android permite pedir: no
+//     existe ningún extra estándar para forzar un modo (Pro/macro/noche)
+//     específico, eso lo decide la app de cámara que responda el intent.
+//     CONFIRMADO EN VIVO (usuario con Redmi Note 12 Pro / MIUI): la cámara
+//     de MIUI, cuando la lanza un intent de terceros así, se abre en una UI
+//     simplificada sin selector de modos -- es una restricción del lado de
+//     esa app de cámara, no algo que este intent pueda evitar. Workaround
+//     real: sacar la foto con la app de cámara normal (con Pro/macro) y
+//     traerla con "Elegir de galería", que sí conserva resolución completa.
 //     "Elegir de galería" sigue usando el <input type=file> normal (el
 //     selector de archivos del sistema ya muestra todo bien).
 //   - Recorte: antes de procesar, se puede ajustar un recuadro sobre la
@@ -188,6 +198,7 @@ registerRenderer("creadortexturas", {
 
             function dragHandle(corner) {
                 return (e) => {
+                    e.preventDefault();
                     e.stopPropagation();
                     const startRect = containerEl.getBoundingClientRect();
                     const start = { ...S.cropBox };
@@ -220,14 +231,30 @@ registerRenderer("creadortexturas", {
                     function up() {
                         window.removeEventListener("pointermove", move);
                         window.removeEventListener("pointerup", up);
+                        window.removeEventListener("pointercancel", up);
                     }
                     window.addEventListener("pointermove", move);
                     window.addEventListener("pointerup", up);
+                    window.addEventListener("pointercancel", up);
                 };
             }
 
+            // NUEVO (bug real reportado por el usuario -- arrastrar la caja
+            // entera "se suelta sola" al segundo de empezar): faltaba
+            // e.preventDefault() acá (dragHandle tampoco lo tenía, pero las
+            // esquinas se salvaban por touch-action:none en su CSS) y un
+            // listener de "pointercancel" que limpie -- sin eso, si el
+            // WebView llegaba a interpretar el toque como el inicio de un
+            // scroll de .tx-root (que sí tiene overflow-y:auto) en algún
+            // momento del gesto, cancelaba la secuencia de punteros y el
+            // arrastre se cortaba en seco sin que quedara ningún rastro para
+            // depurar. Ahora, sumado a touch-action:none en .tx-crop-box
+            // (ver style.css), el navegador ni siquiera llega a considerar
+            // ese camino.
             function dragMove() {
                 return (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     const startRect = containerEl.getBoundingClientRect();
                     const start = { ...S.cropBox };
                     function move(ev) {
@@ -241,9 +268,11 @@ registerRenderer("creadortexturas", {
                     function up() {
                         window.removeEventListener("pointermove", move);
                         window.removeEventListener("pointerup", up);
+                        window.removeEventListener("pointercancel", up);
                     }
                     window.addEventListener("pointermove", move);
                     window.addEventListener("pointerup", up);
+                    window.addEventListener("pointercancel", up);
                 };
             }
 
@@ -535,7 +564,7 @@ registerRenderer("creadortexturas", {
 
             pickRow.append(cameraBtn, galleryInp, galleryBtn);
             root.appendChild(pickRow);
-            root.appendChild(el("p", { className: "tx-empty", textContent: "Sacale una foto de cerca y de frente a una superficie (piedra, madera, tela...) para generar su set de texturas. \"Tomar foto\" abre la cámara completa del sistema -- todos sus modos (macro, Pro, noche...) están disponibles." }));
+            root.appendChild(el("p", { className: "tx-empty", textContent: "Sacale una foto de cerca y de frente a una superficie (piedra, madera, tela...) para generar su set de texturas. \"Tomar foto\" abre la app de cámara del sistema (no una mini-UI reducida) -- en la mayoría de los teléfonos eso ya te deja elegir modo Pro/macro ahí mismo. Si tu cámara igual se abre simplificada (pasa en algunos Xiaomi/MIUI), sacá la foto con tu app de cámara normal y después usá \"Elegir de galería\" acá." }));
         }
 
         function renderCrop() {

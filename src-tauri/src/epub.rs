@@ -65,29 +65,42 @@ fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("book_config.json"))
 }
 
+// NUEVO (bug real reportado por el usuario): "Libros" y "PDF" tenían cada
+// uno su propia carpeta configurada por separado (esta acá, con default
+// propio "/storage/emulated/0/Books"; la de PDF en pdf.rs, default
+// "/storage/emulated/0/Download") -- el usuario configuró la carpeta desde
+// la pestaña PDF (donde SÍ hay accesos directos) pensando que aplicaba a
+// todo "Lector de Documentos" (que se presenta como una sola herramienta
+// con 2 pestañas, fusionada a propósito), y "Libros" seguía apuntando a su
+// carpeta default vacía -- de ahí "tengo la carpeta seleccionada y me
+// aparece vacío". Ahora la carpeta es UNA sola, compartida: folder acá se
+// lee siempre de pdf::pdf_get_config() (la fuente de verdad), el campo
+// "folder" de este struct queda solo por compatibilidad de (de)serialización
+// pero se pisa siempre al leer. font_size sigue siendo propio de Libros
+// (no tiene sentido compartirlo con PDF).
 #[tauri::command]
 pub fn book_get_config(app: AppHandle) -> BookConfig {
-    let Ok(path) = config_path(&app) else { return BookConfig::default() };
-    std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+    let Ok(path) = config_path(&app) else {
+        return BookConfig { folder: crate::pdf::pdf_get_config(app).folder, ..BookConfig::default() };
+    };
+    let mut cfg: BookConfig = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    cfg.folder = crate::pdf::pdf_get_config(app).folder;
+    cfg
 }
 
 #[tauri::command]
 pub fn book_set_config(app: AppHandle, folder: String, font_size: u32) -> Result<(), String> {
+    // El folder que llega acá puede ser el viejo valor repetido sin cambios
+    // (ver LectorDocs/ui.js: se llama solo para persistir font_size) -- se
+    // ignora y se guarda el compartido de pdf.rs, así esta función nunca
+    // puede volver a desincronizar las 2 carpetas.
+    let _ = folder;
+    let shared_folder = crate::pdf::pdf_get_config(app.clone()).folder;
     let path = config_path(&app)?;
-    let cfg = BookConfig { folder: folder.trim().to_string(), font_size: font_size.clamp(12, 32) };
-    let s = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
-    std::fs::write(&path, s).map_err(|e| e.to_string())
-}
-
-/// Setter de solo-carpeta -- para que Settings (ver FOLDERS en
-/// Settings/ui.js, patrón genérico `set: (folder) => invoke(...)` con un
-/// único argumento) pueda cambiar la carpeta de libros sin tener que
-/// conocer/pisar font_size, que se administra desde el lector.
-#[tauri::command]
-pub fn book_set_folder(app: AppHandle, folder: String) -> Result<(), String> {
-    let mut cfg = book_get_config(app.clone());
-    cfg.folder = folder.trim().to_string();
-    let path = config_path(&app)?;
+    let cfg = BookConfig { folder: shared_folder, font_size: font_size.clamp(12, 32) };
     let s = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
     std::fs::write(&path, s).map_err(|e| e.to_string())
 }

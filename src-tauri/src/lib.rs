@@ -250,7 +250,6 @@ pub fn run() {
             pdf::pdf_rename_file,
             epub::book_get_config,
             epub::book_set_config,
-            epub::book_set_folder,
             epub::book_list_folder,
             epub::book_open,
             epub::book_get_chapter,
