@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Scripts locales de release/upload manual (release.ps1, upload.ps1, etc.):
+# NUNCA versionar estos -- históricamente terminaron con un token de GitHub
+# hardcodeado adentro (bug real, corregido a mano una vez, ver historial).
+# El flujo de release real de este proyecto usa curl + git credential fill
+# desde la sesión de IA, no estos scripts locales.
+release.ps1
+upload.ps1
