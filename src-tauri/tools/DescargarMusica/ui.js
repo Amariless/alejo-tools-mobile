@@ -21,6 +21,7 @@ registerRenderer("descargarmusica", {
             eta: null,
             error: "",
             savedPath: "",
+            copiedPath: false,
         };
 
         function fmtEta(secs) {
@@ -55,6 +56,13 @@ registerRenderer("descargarmusica", {
             let unlisten = null;
             try {
                 unlisten = await window.__TAURI__.event.listen("dl-progress", (e) => {
+                    // NUEVO (auditoría -- hallazgo MENOR): si el usuario
+                    // navegó fuera de esta herramienta (no persistente)
+                    // antes de que termine la descarga, este listener sigue
+                    // vivo hasta el "finally" de más abajo -- sin este
+                    // chequeo, cada evento de progreso seguía disparando un
+                    // render() completo sobre un árbol que nadie ve.
+                    if (ctx.activeTool?.id !== tool.id) return;
                     const { progress, eta } = e.payload || {};
                     if (progress != null) S.progress = progress;
                     S.eta = eta;
@@ -76,6 +84,17 @@ registerRenderer("descargarmusica", {
             renderView();
         }
 
+        // NUEVO (auditoría -- hallazgo MEDIO): no había forma de copiar la
+        // ruta guardada (mismo patrón "copiar" que ya usa Paleta de Colores)
+        // -- body tiene user-select:none global, así que tampoco se podía
+        // seleccionar el texto a mano.
+        async function copySavedPath() {
+            try { await navigator.clipboard.writeText(S.savedPath); } catch (e) { /* sin clipboard, no es grave */ }
+            S.copiedPath = true;
+            renderView();
+            setTimeout(() => { if (S.copiedPath) { S.copiedPath = false; renderView(); } }, 1200);
+        }
+
         function resetToInput() {
             S.phase = "input";
             S.info = null;
@@ -90,6 +109,7 @@ registerRenderer("descargarmusica", {
 
             const urlRow = el("div", { className: "input-row dl-url-row" });
             const urlInp = el("input", {
+                id: "dl-url-inp",
                 type: "text",
                 placeholder: "Pegá el link (YouTube, SoundCloud, Bandcamp...)",
                 value: S.url,
@@ -97,7 +117,7 @@ registerRenderer("descargarmusica", {
             });
             urlInp.oninput = (e) => { S.url = e.target.value; };
             urlInp.onkeydown = (e) => { if (e.key === "Enter") fetchInfo(); };
-            urlRow.append(lbl("Link"), urlInp);
+            urlRow.append(lbl("Link", "dl-url-inp"), urlInp);
             root.appendChild(urlRow);
 
             if (S.phase === "input" || S.phase === "loading") {
@@ -124,14 +144,14 @@ registerRenderer("descargarmusica", {
                 }
                 const meta = el("div", { className: "dl-meta" });
 
-                const titleInp = el("input", { type: "text", className: "dl-title-inp", value: S.info.title, disabled: S.phase !== "preview" });
+                const titleInp = el("input", { id: "dl-title-inp", type: "text", className: "dl-title-inp", value: S.info.title, disabled: S.phase !== "preview" });
                 titleInp.oninput = (e) => { S.info.title = e.target.value; };
-                const artistInp = el("input", { type: "text", className: "dl-artist-inp", value: S.info.artist, disabled: S.phase !== "preview" });
+                const artistInp = el("input", { id: "dl-artist-inp", type: "text", className: "dl-artist-inp", value: S.info.artist, disabled: S.phase !== "preview" });
                 artistInp.oninput = (e) => { S.info.artist = e.target.value; };
 
                 meta.append(
-                    lbl("Artista"), artistInp,
-                    lbl("Título"), titleInp,
+                    lbl("Artista", "dl-artist-inp"), artistInp,
+                    lbl("Título", "dl-title-inp"), titleInp,
                     el("p", { className: "dl-sub", textContent: `${S.info.platform}${S.info.duration ? " · " + S.info.duration : ""}` }),
                 );
                 card.appendChild(meta);
@@ -139,11 +159,11 @@ registerRenderer("descargarmusica", {
 
                 if (S.phase === "preview") {
                     const qualityRow = el("div", { className: "input-row" });
-                    const qualitySel = el("select", { className: "dl-quality-sel" });
+                    const qualitySel = el("select", { id: "dl-quality-sel", className: "dl-quality-sel" });
                     [["0", "Mejor disponible"], ["320", "320 kbps"], ["256", "256 kbps"], ["192", "192 kbps"], ["128", "128 kbps"]]
                         .forEach(([v, label]) => qualitySel.appendChild(el("option", { value: v, textContent: label, selected: v === S.quality })));
                     qualitySel.onchange = (e) => { S.quality = e.target.value; };
-                    qualityRow.append(lbl("Calidad"), qualitySel);
+                    qualityRow.append(lbl("Calidad", "dl-quality-sel"), qualitySel);
                     root.appendChild(qualityRow);
 
                     const actions = el("div", { className: "sm-row-actions" });
@@ -167,6 +187,9 @@ registerRenderer("descargarmusica", {
 
                 if (S.phase === "done") {
                     root.appendChild(el("p", { className: "dl-done", textContent: `Guardada en ${S.savedPath}` }));
+                    const copyBtn = el("button", { textContent: S.copiedPath ? "Copiada" : "Copiar ruta" });
+                    copyBtn.onclick = copySavedPath;
+                    root.appendChild(copyBtn);
                     const anotherBtn = el("button", { className: "primary", textContent: "Descargar otra" });
                     anotherBtn.onclick = () => { S.url = ""; resetToInput(); };
                     root.appendChild(anotherBtn);

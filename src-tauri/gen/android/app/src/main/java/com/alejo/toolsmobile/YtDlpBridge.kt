@@ -98,21 +98,25 @@ object YtDlpBridge {
         val jobId = UUID.randomUUID().toString()
         val appContext = context.applicationContext
         Thread {
-            val result = try {
-                ensureInit(appContext)
-                val info = YoutubeDL.getInstance().getInfo(url)
-                val j = JSONObject()
-                j.put("ok", true)
-                j.put("title", info.title ?: info.fulltitle ?: "")
-                j.put("uploader", info.uploader ?: "")
-                j.put("duration", info.duration)
-                j.put("thumbnail", info.thumbnail ?: "")
-                j.put("webpage_url", info.webpageUrl ?: url)
-                j.toString()
-            } catch (e: Exception) {
-                errorJson(e)
+            var result = errorJson(IllegalStateException("Fallo desconocido al obtener info"))
+            try {
+                result = try {
+                    ensureInit(appContext)
+                    val info = YoutubeDL.getInstance().getInfo(url)
+                    val j = JSONObject()
+                    j.put("ok", true)
+                    j.put("title", info.title ?: info.fulltitle ?: "")
+                    j.put("uploader", info.uploader ?: "")
+                    j.put("duration", info.duration)
+                    j.put("thumbnail", info.thumbnail ?: "")
+                    j.put("webpage_url", info.webpageUrl ?: url)
+                    j.toString()
+                } catch (e: Throwable) {
+                    errorJson(e)
+                }
+            } finally {
+                jobs[jobId] = result
             }
-            jobs[jobId] = result
         }.start()
         return jobId
     }
@@ -128,28 +132,32 @@ object YtDlpBridge {
         progress[jobId] = Pair(0f, -1L)
         val appContext = context.applicationContext
         Thread {
-            val result = try {
-                ensureInit(appContext)
-                val request = YoutubeDLRequest(url)
-                request.addOption("--no-playlist")
-                request.addOption("-x")
-                request.addOption("--audio-format", "mp3")
-                if (quality.isNotBlank() && quality != "0") {
-                    request.addOption("--audio-quality", "${quality}K")
+            var result = errorJson(IllegalStateException("Fallo desconocido al descargar"))
+            try {
+                result = try {
+                    ensureInit(appContext)
+                    val request = YoutubeDLRequest(url)
+                    request.addOption("--no-playlist")
+                    request.addOption("-x")
+                    request.addOption("--audio-format", "mp3")
+                    if (quality.isNotBlank() && quality != "0") {
+                        request.addOption("--audio-quality", "${quality}K")
+                    }
+                    request.addOption("-o", outputPath)
+                    YoutubeDL.getInstance().execute(request, jobId) { pct, etaSecs, _line ->
+                        progress[jobId] = Pair(pct, etaSecs)
+                    }
+                    val j = JSONObject()
+                    j.put("ok", true)
+                    j.put("path", outputPath)
+                    j.toString()
+                } catch (e: Throwable) {
+                    errorJson(e)
                 }
-                request.addOption("-o", outputPath)
-                YoutubeDL.getInstance().execute(request, jobId) { pct, etaSecs, _line ->
-                    progress[jobId] = Pair(pct, etaSecs)
-                }
-                val j = JSONObject()
-                j.put("ok", true)
-                j.put("path", outputPath)
-                j.toString()
-            } catch (e: Exception) {
-                errorJson(e)
+            } finally {
+                progress.remove(jobId)
+                jobs[jobId] = result
             }
-            progress.remove(jobId)
-            jobs[jobId] = result
         }.start()
         return jobId
     }

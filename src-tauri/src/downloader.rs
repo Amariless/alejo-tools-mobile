@@ -273,6 +273,9 @@ async fn jni_start_fetch_info(app: &AppHandle, url: &str) -> Result<String, Stri
                         )
                         .and_then(|v| v.l())
                         .map_err(|e| format!("No se pudo iniciar la búsqueda: {e}"))?;
+                    if job_id_obj.is_null() {
+                        return Err("startFetchInfo devolvió null".to_string());
+                    }
                     let job_id: String = env
                         .get_string(&job_id_obj.into())
                         .map_err(|e| e.to_string())?
@@ -284,7 +287,13 @@ async fn jni_start_fetch_info(app: &AppHandle, url: &str) -> Result<String, Stri
         })
         .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
 
-    rx.await.map_err(|_| "No se obtuvo respuesta".to_string())?
+    // NUEVO (auditoría -- hallazgo MEDIO #7): sin timeout, un closure JNI
+    // colgado dejaba el comando esperando para siempre.
+    match tokio::time::timeout(std::time::Duration::from_secs(20), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("No se obtuvo respuesta".to_string()),
+        Err(_) => Err("La búsqueda tardó demasiado en iniciar".to_string()),
+    }
 }
 
 #[cfg(target_os = "android")]
@@ -317,6 +326,9 @@ async fn jni_start_download(app: &AppHandle, url: &str, out_path: &str, quality:
                         )
                         .and_then(|v| v.l())
                         .map_err(|e| format!("No se pudo iniciar la descarga: {e}"))?;
+                    if job_id_obj.is_null() {
+                        return Err("startDownload devolvió null".to_string());
+                    }
                     let job_id: String = env
                         .get_string(&job_id_obj.into())
                         .map_err(|e| e.to_string())?
@@ -328,7 +340,13 @@ async fn jni_start_download(app: &AppHandle, url: &str, out_path: &str, quality:
         })
         .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
 
-    rx.await.map_err(|_| "No se obtuvo respuesta".to_string())?
+    // NUEVO (auditoría -- hallazgo MEDIO #7): sin timeout, un closure JNI
+    // colgado dejaba el comando esperando para siempre.
+    match tokio::time::timeout(std::time::Duration::from_secs(20), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("No se obtuvo respuesta".to_string()),
+        Err(_) => Err("La descarga tardó demasiado en iniciar".to_string()),
+    }
 }
 
 #[cfg(target_os = "android")]
@@ -357,6 +375,9 @@ async fn jni_poll(app: &AppHandle, job_id: &str) -> Result<serde_json::Value, St
                         )
                         .and_then(|v| v.l())
                         .map_err(|e| format!("No se pudo consultar el progreso: {e}"))?;
+                    if json_obj.is_null() {
+                        return Err("poll devolvió null".to_string());
+                    }
                     let json: String = env
                         .get_string(&json_obj.into())
                         .map_err(|e| e.to_string())?
@@ -368,7 +389,13 @@ async fn jni_poll(app: &AppHandle, job_id: &str) -> Result<serde_json::Value, St
         })
         .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
 
-    let raw = rx.await.map_err(|_| "No se obtuvo respuesta".to_string())??;
+    // NUEVO (auditoría -- hallazgo MEDIO #7): sin timeout, un closure JNI
+    // colgado dejaba el comando esperando para siempre.
+    let raw = match tokio::time::timeout(std::time::Duration::from_secs(20), rx).await {
+        Ok(Ok(result)) => result?,
+        Ok(Err(_)) => return Err("No se obtuvo respuesta".to_string()),
+        Err(_) => return Err("La consulta de progreso tardó demasiado".to_string()),
+    };
     serde_json::from_str(&raw).map_err(|e| format!("Respuesta inesperada de YtDlpBridge: {e}"))
 }
 
@@ -390,10 +417,19 @@ async fn jni_poll(_app: &AppHandle, _job_id: &str) -> Result<serde_json::Value, 
 /// directo. 250ms es suficientemente seguido para que la barra de progreso
 /// se sienta fluida sin saturar el puente JNI con llamadas.
 async fn poll_until_done(app: &AppHandle, job_id: &str) -> Result<serde_json::Value, String> {
+    // NUEVO (auditoría -- hallazgo MEDIO #4): sin límite, un job que se
+    // cuelga del lado de YtDlpBridge.kt (yt-dlp trabado con una URL rara)
+    // dejaba este sondeo corriendo cada 250ms indefinidamente, sin ningún
+    // feedback de error al usuario. 90s es de sobra para "buscar info" de
+    // un video/canción.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(90);
     loop {
         let v = jni_poll(app, job_id).await?;
         if v.get("status").and_then(|s| s.as_str()) == Some("done") {
             return Ok(v);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err("La búsqueda tardó demasiado.".to_string());
         }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
@@ -430,7 +466,10 @@ pub async fn dl_fetch_info(app: AppHandle, url: String) -> Result<TrackInfo, Str
 
     let raw_title = result.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let uploader = result.get("uploader").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let duration_secs = result.get("duration").and_then(|v| v.as_i64()).unwrap_or(0);
+    // NUEVO (auditoría -- hallazgo MENOR #11): as_i64() devuelve None (y se
+    // perdía el dato, cayendo a 0) si el bridge serializa "duration" como
+    // float (ej. 213.0) en vez de entero -- as_f64() cubre ambos casos.
+    let duration_secs = result.get("duration").and_then(|v| v.as_f64()).map(|f| f as i64).unwrap_or(0);
     let thumbnail = result.get("thumbnail").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
     let webpage_url = result.get("webpage_url").and_then(|v| v.as_str()).unwrap_or(&url).to_string();
 
@@ -481,6 +520,11 @@ pub async fn dl_download(app: AppHandle, url: String, title: String, artist: Str
 
     let job_id = jni_start_download(&app, &url, &out_path_str, &quality).await?;
 
+    // NUEVO (auditoría -- hallazgo MEDIO #4): sin límite, un job que se
+    // cuelga del lado de YtDlpBridge.kt dejaba este sondeo corriendo cada
+    // 250ms indefinidamente. 30 minutos es de sobra incluso para una
+    // descarga larga en una conexión lenta.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30 * 60);
     loop {
         let v = jni_poll(&app, &job_id).await?;
         let status = v.get("status").and_then(|s| s.as_str()).unwrap_or("running");
@@ -490,6 +534,9 @@ pub async fn dl_download(app: AppHandle, url: String, title: String, artist: Str
             }
             let err = v.get("error").and_then(|e| e.as_str()).unwrap_or("Error desconocido");
             return Err(format!("No se pudo descargar: {err}"));
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err("La descarga tardó demasiado.".to_string());
         }
         let progress = v.get("progress").and_then(|p| p.as_f64());
         let eta = v.get("eta").and_then(|e| e.as_i64()).filter(|&e| e >= 0);

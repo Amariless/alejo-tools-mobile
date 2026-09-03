@@ -13,6 +13,7 @@
 // hay riesgo real de ANR por una llamada tan corta.
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -75,6 +76,12 @@ fn progress_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("pdf_progress.json"))
 }
 
+// NUEVO (auditoría -- hallazgo MEDIO #6): serializa el read-modify-write de
+// pdf_progress.json -- sin esto, dos llamadas concurrentes a
+// pdf_set_progress podían pisarse una a la otra (leer el mismo estado
+// viejo, escribir cada una encima). Mismo patrón que SESSIONS en epub.rs.
+static PROGRESS_LOCK: Mutex<()> = Mutex::new(());
+
 fn read_all_progress(app: &AppHandle) -> std::collections::HashMap<String, PdfProgress> {
     let Ok(path) = progress_path(app) else { return Default::default() };
     std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
@@ -83,16 +90,24 @@ fn read_all_progress(app: &AppHandle) -> std::collections::HashMap<String, PdfPr
 fn write_all_progress(app: &AppHandle, all: &std::collections::HashMap<String, PdfProgress>) -> Result<(), String> {
     let path = progress_path(app)?;
     let s = serde_json::to_string_pretty(all).map_err(|e| e.to_string())?;
-    std::fs::write(&path, s).map_err(|e| e.to_string())
+    // Escritura atómica: se escribe a un .tmp en el mismo directorio y
+    // recién después se renombra -- así una escritura interrumpida (o una
+    // concurrente) nunca deja pdf_progress.json truncado/corrupto a medio
+    // escribir.
+    let tmp_path = path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, s).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn pdf_get_progress(app: AppHandle, path: String) -> Option<PdfProgress> {
+    let _guard = PROGRESS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     read_all_progress(&app).get(&path).cloned()
 }
 
 #[tauri::command]
 pub fn pdf_set_progress(app: AppHandle, path: String, page_index: u32, scroll_fraction: f64) -> Result<(), String> {
+    let _guard = PROGRESS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = read_all_progress(&app);
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
     all.insert(path, PdfProgress { page_index, scroll_fraction, updated_at: now });
@@ -154,7 +169,15 @@ where
         })
         .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
 
-    rx.await.map_err(|_| "No se obtuvo respuesta".to_string())?
+    // NUEVO (auditoría -- hallazgo MEDIO #3): sin timeout, si el closure
+    // JNI nunca llega a mandar nada por el canal (ej. la Activity se
+    // destruye entre el with_webview y el exec), el comando Tauri quedaba
+    // colgado para siempre.
+    match tokio::time::timeout(std::time::Duration::from_secs(20), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("No se obtuvo respuesta".to_string()),
+        Err(_) => Err("La operación con PdfBridge tardó demasiado".to_string()),
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -171,6 +194,9 @@ where
 /// devuelven texto (a diferencia de "close", que devuelve void).
 fn jstring_result(env: &mut jni::JNIEnv, ret: Result<jni::objects::JValueOwned, jni::errors::Error>, ctx: &str) -> Result<String, String> {
     let ret_obj = ret.and_then(|v| v.l()).map_err(|e| format!("{ctx}: {e}"))?;
+    if ret_obj.is_null() {
+        return Err(format!("{ctx}: el método devolvió null"));
+    }
     Ok(env.get_string(&ret_obj.into()).map_err(|e| e.to_string())?.into())
 }
 
@@ -367,6 +393,15 @@ pub async fn pdf_take_pending_uri(app: AppHandle) -> Result<String, String> {
 /// lo decide el frontend antes de llamar acá). No requiere sesión abierta.
 #[tauri::command]
 pub async fn pdf_get_thumbnail(app: AppHandle, path: String, page_index: u32, max_width: u32) -> Result<String, String> {
+    // NUEVO (auditoría -- hallazgo MENOR): a diferencia de sus hermanos
+    // (pdf_open, pdf_list_folder, pdf_delete_file, pdf_rename_file), este
+    // comando no exigía el permiso "Acceso a todos los archivos" antes de
+    // abrir una ruta cruda -- mismo criterio que pdf_open: una URI
+    // content:// ya trae su propio permiso otorgado por el Intent que la
+    // trajo, así que el gate solo aplica a rutas de archivo crudas.
+    if !path.starts_with("content://") && !crate::storage::has_all_files_access(&app).await? {
+        return Err("Falta el permiso \"Acceso a todos los archivos\" -- pedilo desde Sincronización o en Ajustes del sistema.".to_string());
+    }
     let raw = call_pdf_bridge_thumbnail(&app, &path, page_index, max_width).await?;
     let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| format!("Respuesta inesperada: {e}"))?;
     if v.get("ok").and_then(|b| b.as_bool()) != Some(true) {
@@ -390,6 +425,7 @@ pub async fn pdf_delete_file(app: AppHandle, path: String) -> Result<(), String>
         let err = v.get("error").and_then(|e| e.as_str()).unwrap_or("Error desconocido");
         return Err(format!("No se pudo borrar el archivo: {err}"));
     }
+    let _guard = PROGRESS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = read_all_progress(&app);
     if all.remove(&path).is_some() { let _ = write_all_progress(&app, &all); }
     Ok(())
@@ -410,6 +446,7 @@ pub async fn pdf_rename_file(app: AppHandle, path: String, new_name: String) -> 
         return Err(format!("No se pudo renombrar el archivo: {err}"));
     }
     let new_path = v.get("path").and_then(|p| p.as_str()).unwrap_or(&new_name).to_string();
+    let _guard = PROGRESS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = read_all_progress(&app);
     if let Some(prog) = all.remove(&path) {
         all.insert(new_path.clone(), prog);

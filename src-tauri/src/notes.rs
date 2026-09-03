@@ -63,20 +63,32 @@ fn migrate_note_value(mut v: serde_json::Value) -> serde_json::Value {
     v
 }
 
+// No colapsar un error de parseo (archivo corrupto) a "vacío" -- eso
+// borraría de facto todas las notas del usuario en la próxima escritura.
+// Solo "no existe todavía" cuenta como lista vacía.
 fn read_all(app: &AppHandle) -> Result<Vec<Note>, String> {
     let path = notes_path(app)?;
-    let raw = std::fs::read_to_string(&path).unwrap_or_else(|_| "[]".to_string());
-    let values: Vec<serde_json::Value> = serde_json::from_str(&raw).unwrap_or_default();
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e.to_string()),
+    };
+    let values: Vec<serde_json::Value> = serde_json::from_str(&raw).map_err(|e| format!("notes.json corrupto: {e}"))?;
     Ok(values
         .into_iter()
         .filter_map(|v| serde_json::from_value(migrate_note_value(v)).ok())
         .collect())
 }
 
+// Escritura atómica vía archivo temporal + rename -- un crash o corte de
+// energía a mitad de la escritura nunca deja notes.json truncado o
+// corrupto (rename es atómico dentro del mismo filesystem).
 fn write_all(app: &AppHandle, notes: &[Note]) -> Result<(), String> {
     let path = notes_path(app)?;
     let s = serde_json::to_string_pretty(notes).map_err(|e| e.to_string())?;
-    std::fs::write(&path, s).map_err(|e| e.to_string())
+    let tmp_path = PathBuf::from(format!("{}.tmp", path.to_string_lossy()));
+    std::fs::write(&tmp_path, s).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
 }
 
 fn now_millis() -> i64 {
@@ -197,10 +209,13 @@ pub fn notes_categories_save(app: AppHandle, name: String, color: String) -> Res
 /// perder la etiqueta de una idea es recuperable, perder la idea en sí no.
 #[tauri::command]
 pub fn notes_categories_delete(app: AppHandle, id: String) -> Result<(), String> {
-    let mut cats = read_categories(&app)?;
-    cats.retain(|c| c.id != id);
-    write_categories(&app, &cats)?;
-
+    // Orden invertido a propósito (fix mínimo, no atomicidad real entre
+    // los dos archivos): las notas se actualizan/escriben PRIMERO,
+    // quitándoles la referencia a la categoría que se va a borrar. Recién
+    // después se borra la categoría en sí. Así, si el proceso se corta a
+    // mitad de camino, en el peor caso queda una categoría "huérfana" sin
+    // notas que la usen (inofensivo) -- nunca una nota colgando de un id
+    // de categoría que ya no existe.
     let mut notes = read_all(&app)?;
     let mut changed = false;
     for n in notes.iter_mut() {
@@ -212,5 +227,9 @@ pub fn notes_categories_delete(app: AppHandle, id: String) -> Result<(), String>
     if changed {
         write_all(&app, &notes)?;
     }
+
+    let mut cats = read_categories(&app)?;
+    cats.retain(|c| c.id != id);
+    write_categories(&app, &cats)?;
     Ok(())
 }

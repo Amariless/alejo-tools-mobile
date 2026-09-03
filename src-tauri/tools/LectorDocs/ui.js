@@ -36,6 +36,31 @@ let S = null;
 // si esto viviera en S, se perdería al toque en ese mismo pisado.
 let pendingPdfUriFromDeepLink = null;
 
+// NUEVO (auditoría -- hallazgo CRÍTICO #1): el XHTML de un capítulo de
+// .epub viene de un archivo que el usuario importa (descargado, recibido
+// por "Abrir con...", sincronizado por Syncthing) -- no es contenido de
+// confianza. Antes se insertaba tal cual vía innerHTML, así que un epub
+// armado a mano con <script>/onerror=/javascript: se ejecutaba directo en
+// este WebView (que tiene invoke() disponible). Se limpia con el propio
+// parser del navegador (más robusto que regex sobre el string) antes de
+// insertarlo: se remueven los tags peligrosos enteros, todos los
+// atributos "on*" (onerror, onclick, ...) de cualquier tag, y cualquier
+// href/src que arranque con "javascript:".
+function sanitizeChapterHtml(html) {
+    const doc = new DOMParser().parseFromString(String(html || ""), "text/html");
+    doc.querySelectorAll("script, iframe, object, embed, link, meta, base, form").forEach(node => node.remove());
+    doc.querySelectorAll("*").forEach(node => {
+        for (const attr of Array.from(node.attributes)) {
+            const name = attr.name.toLowerCase();
+            const value = attr.value.trim().toLowerCase();
+            if (name.startsWith("on") || ((name === "href" || name === "src") && value.startsWith("javascript:"))) {
+                node.removeAttribute(attr.name);
+            }
+        }
+    });
+    return doc.body.innerHTML;
+}
+
 registerRenderer("lectordocs", {
     render(tool, area) {
         const root = el("div", { className: "ld-root" });
@@ -47,6 +72,7 @@ registerRenderer("lectordocs", {
             books: { folder: "", files: [], loading: false, error: "", hasStorageAccess: null, fontSize: 18 },
             view: "list", // list | reader
             reader: null,
+            openingReader: false, // evita que un doble-tap sobre una fila abra 2 sesiones en paralelo
             menu: null,          // { format, file } -- hoja de acciones abierta
             renameDialog: null,  // { format, file }
             propsDialog: null,   // { format, file }
@@ -238,7 +264,8 @@ registerRenderer("lectordocs", {
                 ];
                 rows.forEach(([label, value]) => {
                     const row = el("div", { className: "ld-props-row" });
-                    row.innerHTML = `<div class="ld-props-label">${label}</div><div class="ld-props-value">${value || "—"}</div>`;
+                    row.appendChild(el("div", { className: "ld-props-label", textContent: label }));
+                    row.appendChild(el("div", { className: "ld-props-value", textContent: value || "—" }));
                     dialog.appendChild(row);
                 });
                 const closeBtn = el("button", { className: "primary", textContent: "Cerrar" });
@@ -251,8 +278,10 @@ registerRenderer("lectordocs", {
 
         // ── Lista de archivos ──
         function renderFileRow(format, f) {
-            const row = el("div", { className: "ld-item" });
-            row.onclick = () => (format === "pdf" ? openPdfReader(f) : openBookReader(f));
+            const open = () => (format === "pdf" ? openPdfReader(f) : openBookReader(f));
+            const row = el("div", { className: "ld-item", role: "button", tabIndex: 0 });
+            row.onclick = open;
+            row.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } };
             attachLongPress(row, () => openFileMenu(format, f));
 
             const thumb = el("div", { className: "ld-item-thumb" });
@@ -260,7 +289,8 @@ registerRenderer("lectordocs", {
             thumbEls[f.path] = thumb;
 
             const main = el("div", { className: "ld-item-main" });
-            main.innerHTML = `<div class="ld-item-name">${f.name}</div><div class="ld-item-sub">${fmtBytes(f.sizeBytes)}${f.modifiedAt ? " · " + fmtDate(f.modifiedAt) : ""}</div>`;
+            main.appendChild(el("div", { className: "ld-item-name", textContent: f.name }));
+            main.appendChild(el("div", { className: "ld-item-sub", textContent: `${fmtBytes(f.sizeBytes)}${f.modifiedAt ? " · " + fmtDate(f.modifiedAt) : ""}` }));
 
             const dots = el("button", { className: "ld-item-dots", innerHTML: window.AlejoIcons.glyph("dots", 18) });
             dots.onclick = (e) => { e.stopPropagation(); openFileMenu(format, f); };
@@ -485,6 +515,8 @@ registerRenderer("lectordocs", {
         //  LECTOR DE PDF
         // ══════════════════════════════════════════════════════════════
         async function openPdfReader(file) {
+            if (S.openingReader) return; // doble-tap sobre la misma fila -- ya hay una apertura en curso
+            S.openingReader = true;
             S.reader = {
                 format: "pdf", file, sessionId: null, pageCount: 0,
                 orientation: "vertical", mode: "continuous", pageGap: false,
@@ -496,6 +528,12 @@ registerRenderer("lectordocs", {
                 S.reader.sessionId = res.sessionId;
                 S.reader.pageCount = res.pageCount;
                 S.reader.file = { ...file, name: res.displayName || file.name };
+                if (res.pageCount === 0) {
+                    alert("El documento no tiene páginas o no se pudo leer.");
+                    try { await invoke("pdf_close", { sessionId: res.sessionId }); } catch (e2) { /* best effort */ }
+                    S.reader = null;
+                    return;
+                }
                 let startPage = 0;
                 if (!file.path.startsWith("content://")) {
                     try {
@@ -512,6 +550,8 @@ registerRenderer("lectordocs", {
             } catch (e) {
                 alert(String(e));
                 S.reader = null;
+            } finally {
+                S.openingReader = false;
             }
         }
 
@@ -623,7 +663,7 @@ registerRenderer("lectordocs", {
         function renderPdfToolbar() {
             const r = S.reader;
             const bar = el("div", { className: "ld-reader-bar" });
-            const backBtn = el("button", { className: "ld-reader-back", innerHTML: window.AlejoIcons.glyph("chevronLeft", 22) });
+            const backBtn = el("button", { className: "ld-reader-back", innerHTML: window.AlejoIcons.glyph("chevronLeft", 22), ariaLabel: "Volver" });
             backBtn.onclick = () => history.back();
             const title = el("div", { className: "ld-reader-title", textContent: r.file.name });
             bar.append(backBtn, title, el("span", { className: "ld-reader-page-label", textContent: `${r.currentPage + 1} / ${r.pageCount}` }));
@@ -671,6 +711,7 @@ registerRenderer("lectordocs", {
             if (r.pageGap) scrollClasses.push("ld-pdf-scroll--gap");
             const container = el("div", { className: scrollClasses.join(" ") });
             r.slotEls = {};
+            const fragment = document.createDocumentFragment();
             for (let i = 0; i < r.pageCount; i++) {
                 const slot = el("div", { className: "ld-pdf-slot" });
                 slot.dataset.page = String(i);
@@ -686,8 +727,9 @@ registerRenderer("lectordocs", {
                 }
                 attachPdfSlotGestures(slot, () => toggleReaderChrome(wrap));
                 r.slotEls[i] = slot;
-                container.appendChild(slot);
+                fragment.appendChild(slot);
             }
+            container.appendChild(fragment);
             wrap.appendChild(container);
             root.appendChild(wrap);
 
@@ -704,6 +746,8 @@ registerRenderer("lectordocs", {
         //  el pedido de "sin botones de anterior/siguiente" del PDF.
         // ══════════════════════════════════════════════════════════════
         async function openBookReader(file) {
+            if (S.openingReader) return; // doble-tap sobre la misma fila -- ya hay una apertura en curso
+            S.openingReader = true;
             S.reader = {
                 format: "book", file, sessionId: null, title: "", chapterCount: 0,
                 chapterIndex: 0, chapterTitles: {}, appendedUpTo: -1, loadingNext: false,
@@ -715,6 +759,12 @@ registerRenderer("lectordocs", {
                 S.reader.sessionId = res.sessionId;
                 S.reader.title = res.title;
                 S.reader.chapterCount = res.chapterCount;
+                if (res.chapterCount === 0) {
+                    alert("El libro no tiene capítulos o no se pudo leer.");
+                    try { await invoke("book_close", { sessionId: res.sessionId }); } catch (e2) { /* best effort */ }
+                    S.reader = null;
+                    return;
+                }
                 let startChapter = 0;
                 try {
                     const prog = await invoke("book_get_progress", { path: file.path });
@@ -729,6 +779,8 @@ registerRenderer("lectordocs", {
             } catch (e) {
                 alert("No se pudo abrir el libro: " + e);
                 S.reader = null;
+            } finally {
+                S.openingReader = false;
             }
         }
 
@@ -744,7 +796,7 @@ registerRenderer("lectordocs", {
                 if (contentEl) {
                     const section = el("section", { className: "ld-book-chapter" });
                     section.dataset.chapter = String(index);
-                    section.innerHTML = res.html;
+                    section.innerHTML = sanitizeChapterHtml(res.html);
                     contentEl.appendChild(section);
                     r.sectionEls[index] = section;
                     if (r.observer) r.observer.observe(section);
@@ -795,7 +847,7 @@ registerRenderer("lectordocs", {
         function renderBookToolbar() {
             const r = S.reader;
             const bar = el("div", { className: "ld-reader-bar" });
-            const backBtn = el("button", { className: "ld-reader-back", innerHTML: window.AlejoIcons.glyph("chevronLeft", 22) });
+            const backBtn = el("button", { className: "ld-reader-back", innerHTML: window.AlejoIcons.glyph("chevronLeft", 22), ariaLabel: "Volver" });
             backBtn.onclick = () => history.back();
             const title = el("div", { className: "ld-reader-title", textContent: r.title });
             bar.append(backBtn, title);

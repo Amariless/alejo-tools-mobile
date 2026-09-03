@@ -47,18 +47,27 @@ fn data_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("expenses.json"))
 }
 
+// No colapsar un error de parseo (archivo corrupto) a "vacío" -- eso
+// borraría de facto todos los gastos del usuario en la próxima escritura.
+// Solo "no existe todavía" cuenta como datos vacíos por defecto.
 fn read_all(app: &AppHandle) -> Result<ExpensesData, String> {
     let path = data_path(app)?;
-    Ok(std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default())
+    match std::fs::read_to_string(&path) {
+        Ok(s) => serde_json::from_str(&s).map_err(|e| format!("expenses.json corrupto: {e}")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ExpensesData::default()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
+// Escritura atómica vía archivo temporal + rename -- un crash o corte de
+// energía a mitad de la escritura nunca deja expenses.json truncado o
+// corrupto (rename es atómico dentro del mismo filesystem).
 fn write_all(app: &AppHandle, data: &ExpensesData) -> Result<(), String> {
     let path = data_path(app)?;
     let s = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
-    std::fs::write(&path, s).map_err(|e| e.to_string())
+    let tmp_path = PathBuf::from(format!("{}.tmp", path.to_string_lossy()));
+    std::fs::write(&tmp_path, s).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
 }
 
 fn now_millis() -> i64 {

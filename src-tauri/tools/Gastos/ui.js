@@ -194,28 +194,28 @@ registerRenderer("gastos", {
             const form = el("div", { className: "gs-form" });
 
             const amountRow = el("div", { className: "input-row" });
-            const amountInp = el("input", { type: "number", step: "0.01", min: "0", value: S.form.amount, placeholder: "0.00" });
+            const amountInp = el("input", { id: "gs-amount-inp", type: "number", step: "0.01", min: "0", value: S.form.amount, placeholder: "0.00" });
             amountInp.oninput = (e) => { S.form.amount = e.target.value; };
-            amountRow.append(lbl("Monto"), amountInp);
+            amountRow.append(lbl("Monto", "gs-amount-inp"), amountInp);
             form.appendChild(amountRow);
 
             const catRow = el("div", { className: "input-row" });
-            const catSel = el("select", {});
+            const catSel = el("select", { id: "gs-cat-sel" });
             CATEGORIES.forEach(c => catSel.appendChild(el("option", { value: c, textContent: c, selected: c === S.form.category })));
             catSel.onchange = (e) => { S.form.category = e.target.value; };
-            catRow.append(lbl("Categoría"), catSel);
+            catRow.append(lbl("Categoría", "gs-cat-sel"), catSel);
             form.appendChild(catRow);
 
             const dateRow = el("div", { className: "input-row" });
-            const dateInp = el("input", { type: "date", value: S.form.date });
+            const dateInp = el("input", { id: "gs-date-inp", type: "date", value: S.form.date });
             dateInp.onchange = (e) => { S.form.date = e.target.value; };
-            dateRow.append(lbl("Fecha"), dateInp);
+            dateRow.append(lbl("Fecha", "gs-date-inp"), dateInp);
             form.appendChild(dateRow);
 
             const noteRow = el("div", { className: "input-row" });
-            const noteInp = el("input", { type: "text", value: S.form.note, placeholder: "Opcional" });
+            const noteInp = el("input", { id: "gs-note-inp", type: "text", value: S.form.note, placeholder: "Opcional" });
             noteInp.oninput = (e) => { S.form.note = e.target.value; };
-            noteRow.append(lbl("Nota"), noteInp);
+            noteRow.append(lbl("Nota", "gs-note-inp"), noteInp);
             form.appendChild(noteRow);
 
             root.appendChild(form);

@@ -60,7 +60,14 @@ pub fn pomodoro_get_config(app: AppHandle) -> PomodoroConfig {
 }
 
 #[tauri::command]
-pub fn pomodoro_set_config(app: AppHandle, config: PomodoroConfig) -> Result<(), String> {
+pub fn pomodoro_set_config(app: AppHandle, mut config: PomodoroConfig) -> Result<(), String> {
+    // NUEVO (auditoría -- hallazgo MENOR #13): sin validar, un valor como
+    // 0 minutos (bug de UI, o edición manual del JSON) dejaba el Pomodoro
+    // en un estado inutilizable -- se acota a un rango razonable.
+    config.work_minutes = config.work_minutes.clamp(1, 180);
+    config.short_break_minutes = config.short_break_minutes.clamp(1, 180);
+    config.long_break_minutes = config.long_break_minutes.clamp(1, 180);
+    config.long_break_interval = config.long_break_interval.clamp(1, 20);
     let path = config_path(&app, "pomodoro_config.json")?;
     let s = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     std::fs::write(&path, s).map_err(|e| e.to_string())
@@ -131,6 +138,13 @@ pub struct WeatherInfo {
 /// localización para algo tan chico como mostrar el clima de una ciudad).
 #[tauri::command]
 pub async fn clock_get_weather(lat: f64, lon: f64) -> Result<WeatherInfo, String> {
+    // NUEVO (auditoría -- hallazgo MENOR #13): lat/lon vienen de una tabla
+    // curada propia, pero validar el rango es una línea y evita mandarle
+    // a Open-Meteo coordenadas sin sentido si algún día se agrega una
+    // ciudad con un typo.
+    if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lon) {
+        return Err("Coordenadas fuera de rango.".to_string());
+    }
     let client = crate::tls::client("AlejoToolsMobile-Weather/1.0", 15);
     let url = format!(
         "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,is_day"

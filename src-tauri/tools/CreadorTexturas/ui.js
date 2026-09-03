@@ -503,7 +503,13 @@ registerRenderer("creadortexturas", {
             S.activeCollection = c;
             S.activeImages = [];
             renderView();
-            try { S.activeImages = await invoke("collections_list_images", { id: c.id }); } catch (e) { /* no-op */ }
+            let images = [];
+            try { images = await invoke("collections_list_images", { id: c.id }); } catch (e) { /* no-op */ }
+            // NUEVO (auditoría -- hallazgo MEDIO #2): si el usuario tocó otra
+            // colección mientras esta llamada estaba en vuelo, S.activeCollection
+            // ya cambió -- no pisar sus imágenes con la respuesta tardía de esta.
+            if (S.activeCollection !== c) return;
+            S.activeImages = images;
             renderView();
         }
 
@@ -630,8 +636,9 @@ registerRenderer("creadortexturas", {
         function renderResultCard([key, canvasKey, filename, title]) {
             const canvas = S[canvasKey];
             const checked = S.selected[key];
-            const card = el("div", { className: `tx-card${checked ? " tx-card--selected" : ""}` });
+            const card = el("div", { className: `tx-card${checked ? " tx-card--selected" : ""}`, role: "button", tabIndex: 0 });
             card.onclick = () => toggleSelect(key);
+            card.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSelect(key); } };
             const checkBadge = el("div", { className: "tx-card-check" });
             checkBadge.innerHTML = checked ? window.AlejoIcons.glyph("check", 14) : "";
             card.appendChild(checkBadge);
@@ -654,7 +661,8 @@ registerRenderer("creadortexturas", {
             }
             S.collections.forEach(c => {
                 const row = el("button", { className: "tx-sheet-btn" });
-                row.innerHTML = `<span>${c.name}</span><span class="tx-sheet-btn-sub">${CATEGORY_LABEL[c.category] || c.category} · ${c.imageCount}</span>`;
+                row.appendChild(el("span", { textContent: c.name }));
+                row.appendChild(el("span", { className: "tx-sheet-btn-sub", textContent: `${CATEGORY_LABEL[c.category] || c.category} · ${c.imageCount}` }));
                 row.onclick = () => saveSelectedToCollection(c.id);
                 sheet.appendChild(row);
             });
@@ -709,17 +717,20 @@ registerRenderer("creadortexturas", {
             const strengthLabel = el("label", { textContent: `Fuerza del relieve: ${S.strength.toFixed(1)}` });
             strengthRow.appendChild(strengthLabel);
             const slider = el("input", { type: "range", min: "0.5", max: "6", step: "0.1", value: String(S.strength) });
+            // NUEVO (auditoría -- hallazgo MEDIO #6): computeNormalMap() hace
+            // una convolución O(w·h) sobre la imagen -- arrastrar el slider
+            // dispara "input" decenas de veces por segundo, y en un Android
+            // de gama baja eso se sentía entrecortado. Se throttlea a como
+            // máximo una recomputación por frame con requestAnimationFrame:
+            // la etiqueta de texto sigue actualizándose al instante (es
+            // barato), solo el recálculo pesado del mapa normal se pospone.
+            let rafPending = false;
             slider.oninput = (e) => {
-                // NUEVO: antes esto solo actualizaba el número y el mapa
-                // normal recién se recalculaba en "change" (al soltar) --
-                // el usuario pidió que se vea en vivo. computeNormalMap()
-                // repinta el <canvas> ya montado en la tarjeta (ver el
-                // comentario ahí) sin reconstruir el DOM, así que es seguro
-                // llamarlo en cada evento de arrastre sin cortar el gesto
-                // del slider ni perder el foco.
                 S.strength = parseFloat(e.target.value);
                 strengthLabel.textContent = `Fuerza del relieve: ${S.strength.toFixed(1)}`;
-                computeNormalMap();
+                if (rafPending) return;
+                rafPending = true;
+                requestAnimationFrame(() => { rafPending = false; computeNormalMap(); });
             };
             strengthRow.appendChild(slider);
             root.appendChild(strengthRow);
@@ -754,15 +765,19 @@ registerRenderer("creadortexturas", {
         //  RENDER — pestaña "Colecciones"
         // ══════════════════════════════════════════════════════════════
         function renderCollectionRow(c) {
-            const row = el("div", { className: "tx-coll-row" });
-            row.onclick = () => openCollectionDetail(c);
+            // NUEVO (auditoría -- hallazgo MEDIO #7): fila clicable sin
+            // rol/teclado, y hallazgo MENOR #8: c.name (nombre de colección
+            // escrito por el usuario) iba directo a innerHTML sin escapar.
+            const row = el("div", { className: "tx-coll-row", role: "button", tabIndex: 0 });
+            const open = () => openCollectionDetail(c);
+            row.onclick = open;
+            row.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } };
             attachLongPress(row, () => { S.collectionMenu = c; renderView(); });
-            row.innerHTML = `
-                <div class="tx-coll-main">
-                    <div class="tx-coll-name">${c.name}</div>
-                    <div class="tx-coll-sub">${CATEGORY_LABEL[c.category] || c.category} · ${c.imageCount} imagen(es)</div>
-                </div>`;
-            const dots = el("button", { className: "tx-coll-dots", innerHTML: window.AlejoIcons.glyph("dots", 18) });
+            const main = el("div", { className: "tx-coll-main" });
+            main.appendChild(el("div", { className: "tx-coll-name", textContent: c.name }));
+            main.appendChild(el("div", { className: "tx-coll-sub", textContent: `${CATEGORY_LABEL[c.category] || c.category} · ${c.imageCount} imagen(es)` }));
+            row.appendChild(main);
+            const dots = el("button", { className: "tx-coll-dots", innerHTML: window.AlejoIcons.glyph("dots", 18), ariaLabel: "Más opciones" });
             dots.onclick = (e) => { e.stopPropagation(); S.collectionMenu = c; renderView(); };
             row.appendChild(dots);
             return row;
@@ -863,7 +878,8 @@ registerRenderer("creadortexturas", {
                 const grid = el("div", { className: "tx-img-grid" });
                 S.activeImages.forEach(img => {
                     const cell = el("div", { className: "tx-img-cell" });
-                    cell.innerHTML = `<img class="tx-img-thumb" src="${assetUrl(img.path)}"><div class="tx-img-name">${img.name}</div>`;
+                    cell.appendChild(el("img", { className: "tx-img-thumb", src: assetUrl(img.path) }));
+                    cell.appendChild(el("div", { className: "tx-img-name", textContent: img.name }));
                     const rmBtn = el("button", { className: "tx-img-remove", innerHTML: window.AlejoIcons.glyph("trash", 14) });
                     rmBtn.onclick = () => removeActiveImage(img.name);
                     cell.appendChild(rmBtn);
@@ -916,4 +932,12 @@ registerRenderer("creadortexturas", {
     },
     onOutput() {},
     onDone() {},
+    // NUEVO (auditoría -- hallazgo MEDIO #4): si el usuario sale de la
+    // herramienta con una foto pendiente de recortar (blob: de la galería o
+    // de la cámara), ese blob quedaba retenido en memoria por el resto de
+    // la sesión de la WebView -- mismo patrón que applyCrop/cancelCrop ya
+    // usan para el caso en que sí se termina el flujo de recorte.
+    onLeave() {
+        if (S?.pendingImage?.url?.startsWith("blob:")) URL.revokeObjectURL(S.pendingImage.url);
+    },
 });

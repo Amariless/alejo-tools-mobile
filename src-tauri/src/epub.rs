@@ -148,11 +148,10 @@ pub async fn book_delete_file(app: AppHandle, path: String) -> Result<(), String
         return Err("Falta el permiso \"Acceso a todos los archivos\".".to_string());
     }
     std::fs::remove_file(&path).map_err(|e| format!("No se pudo borrar el archivo: {e}"))?;
+    let _guard = PROGRESS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = read_all_progress(&app);
     if all.remove(&path).is_some() {
-        let out_path = progress_path(&app)?;
-        let s = serde_json::to_string_pretty(&all).map_err(|e| e.to_string())?;
-        let _ = std::fs::write(&out_path, s);
+        let _ = write_all_progress(&app, &all);
     }
     Ok(())
 }
@@ -172,12 +171,11 @@ pub async fn book_rename_file(app: AppHandle, path: String, new_name: String) ->
     }
     std::fs::rename(&old, &target).map_err(|e| format!("No se pudo renombrar: {e}"))?;
     let new_path = target.to_string_lossy().to_string();
+    let _guard = PROGRESS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = read_all_progress(&app);
     if let Some(prog) = all.remove(&path) {
         all.insert(new_path.clone(), prog);
-        let out_path = progress_path(&app)?;
-        let s = serde_json::to_string_pretty(&all).map_err(|e| e.to_string())?;
-        let _ = std::fs::write(&out_path, s);
+        let _ = write_all_progress(&app, &all);
     }
     Ok(new_path)
 }
@@ -256,11 +254,35 @@ fn percent_decode(s: &str) -> String {
         out.push(bytes[i]);
         i += 1;
     }
-    String::from_utf8_lossy(&out).to_string()
+    // NUEVO (auditoría -- hallazgo MENOR #10): los href del .opf son
+    // atributos XML -- además del percent-encoding, también pueden traer
+    // las 5 entidades XML predefinidas (ej. href="Cap%C3%ADtulo &amp;
+    // 1.xhtml"). Sin decodificarlas, esos capítulos tampoco se encontraban
+    // en el zip.
+    decode_xml_entities(&String::from_utf8_lossy(&out))
 }
+
+fn decode_xml_entities(s: &str) -> String {
+    // &amp; se reemplaza último a propósito -- si fuera primero,
+    // "&amp;lt;" (un "&" literal seguido de "lt;") se decodificaría dos
+    // veces y terminaría mal como "<" en vez de "&lt;".
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
+
+// NUEVO (auditoría -- hallazgo MEDIO #5): un .epub manipulado (o corrupto)
+// podía declarar una entrada de zip enorme -- read_to_end() la cargaba
+// entera a memoria sin ningún límite antes de esto.
+const MAX_ZIP_ENTRY_BYTES: u64 = 50 * 1024 * 1024; // 50 MB
 
 fn zip_read_entry(zip: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Result<Vec<u8>, String> {
     let mut file = zip.by_name(name).map_err(|e| format!("No se encontró {name} dentro del epub: {e}"))?;
+    if file.size() > MAX_ZIP_ENTRY_BYTES {
+        return Err(format!("{name} es demasiado grande ({} bytes, máximo {MAX_ZIP_ENTRY_BYTES})", file.size()));
+    }
     let mut buf = Vec::new();
     file.read_to_end(&mut buf).map_err(|e| format!("No se pudo leer {name}: {e}"))?;
     Ok(buf)
@@ -404,7 +426,7 @@ pub async fn book_open(app: AppHandle, path: String) -> Result<BookOpenResult, S
     let session_id = new_session_id();
     let chapter_count = parsed.spine.len();
     let title = parsed.title.clone();
-    SESSIONS.lock().unwrap().insert(session_id.clone(), BookSession { path, spine: parsed.spine });
+    SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).insert(session_id.clone(), BookSession { path, spine: parsed.spine });
     Ok(BookOpenResult { session_id, title, chapter_count })
 }
 
@@ -418,7 +440,7 @@ pub struct ChapterResult {
 #[tauri::command]
 pub fn book_get_chapter(session_id: String, chapter_index: usize) -> Result<ChapterResult, String> {
     let (path, entry_name) = {
-        let sessions = SESSIONS.lock().unwrap();
+        let sessions = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
         let session = sessions.get(&session_id).ok_or("Sesión no encontrada -- ¿se cerró el libro?")?;
         let entry_name = session.spine.get(chapter_index).ok_or("Índice de capítulo fuera de rango")?.clone();
         (session.path.clone(), entry_name)
@@ -433,7 +455,7 @@ pub fn book_get_chapter(session_id: String, chapter_index: usize) -> Result<Chap
 
 #[tauri::command]
 pub fn book_close(session_id: String) {
-    SESSIONS.lock().unwrap().remove(&session_id);
+    SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).remove(&session_id);
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -456,22 +478,38 @@ fn progress_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("book_progress.json"))
 }
 
+// NUEVO (auditoría -- hallazgo MEDIO #6): serializa el read-modify-write de
+// book_progress.json -- mismo patrón que PROGRESS_LOCK en pdf.rs.
+static PROGRESS_LOCK: Mutex<()> = Mutex::new(());
+
 fn read_all_progress(app: &AppHandle) -> HashMap<String, BookProgress> {
     let Ok(path) = progress_path(app) else { return HashMap::new() };
     std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
+/// Escritura atómica de book_progress.json: se escribe a un .tmp en el
+/// mismo directorio y recién después se renombra -- así una escritura
+/// interrumpida (o una concurrente) nunca deja el archivo
+/// truncado/corrupto a medio escribir.
+fn write_all_progress(app: &AppHandle, all: &HashMap<String, BookProgress>) -> Result<(), String> {
+    let path = progress_path(app)?;
+    let s = serde_json::to_string_pretty(all).map_err(|e| e.to_string())?;
+    let tmp_path = path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, s).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn book_get_progress(app: AppHandle, path: String) -> Option<BookProgress> {
+    let _guard = PROGRESS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     read_all_progress(&app).get(&path).cloned()
 }
 
 #[tauri::command]
 pub fn book_set_progress(app: AppHandle, path: String, chapter_index: usize, scroll_fraction: f64) -> Result<(), String> {
+    let _guard = PROGRESS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = read_all_progress(&app);
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
     all.insert(path, BookProgress { chapter_index, scroll_fraction, updated_at: now });
-    let out_path = progress_path(&app)?;
-    let s = serde_json::to_string_pretty(&all).map_err(|e| e.to_string())?;
-    std::fs::write(&out_path, s).map_err(|e| e.to_string())
+    write_all_progress(&app, &all)
 }

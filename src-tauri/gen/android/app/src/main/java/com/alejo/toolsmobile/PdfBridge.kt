@@ -140,26 +140,31 @@ object PdfBridge {
     fun renderPage(sessionId: String, pageIndex: Int, maxWidthPx: Int): String {
         val renderer = sessions[sessionId] ?: return errorJson(IllegalStateException("Sesión no encontrada -- ¿se cerró el PDF?"))
         return try {
-            renderer.openPage(pageIndex).use { page ->
-                val scale = maxWidthPx.toFloat() / page.width.toFloat()
-                val w = maxWidthPx
-                val h = (page.height * scale).toInt().coerceAtLeast(1)
-                val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                bitmap.eraseColor(Color.WHITE) // páginas con fondo transparente no deberían verse negras
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            synchronized(renderer) {
+                renderer.openPage(pageIndex).use { page ->
+                    val scale = maxWidthPx.toFloat() / page.width.toFloat()
+                    val w = maxWidthPx
+                    val h = (page.height * scale).toInt().coerceAtLeast(1)
+                    val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    try {
+                        bitmap.eraseColor(Color.WHITE) // páginas con fondo transparente no deberían verse negras
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
 
-                val out = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.PNG, 90, out)
-                bitmap.recycle()
+                        val out = ByteArrayOutputStream()
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 90, out)
 
-                val j = JSONObject()
-                j.put("ok", true)
-                j.put("png", Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP))
-                j.put("width", w)
-                j.put("height", h)
-                j.toString()
+                        val j = JSONObject()
+                        j.put("ok", true)
+                        j.put("png", Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP))
+                        j.put("width", w)
+                        j.put("height", h)
+                        j.toString()
+                    } finally {
+                        bitmap.recycle()
+                    }
+                }
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             errorJson(e)
         }
     }
@@ -214,19 +219,22 @@ object PdfBridge {
                         val w = maxWidthPx
                         val h = (page.height * scale).toInt().coerceAtLeast(1)
                         val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                        bitmap.eraseColor(Color.WHITE)
-                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        val out = ByteArrayOutputStream()
-                        bitmap.compress(Bitmap.CompressFormat.PNG, 80, out)
-                        bitmap.recycle()
-                        val j = JSONObject()
-                        j.put("ok", true)
-                        j.put("png", Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP))
-                        j.toString()
+                        try {
+                            bitmap.eraseColor(Color.WHITE)
+                            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            val out = ByteArrayOutputStream()
+                            bitmap.compress(Bitmap.CompressFormat.PNG, 80, out)
+                            val j = JSONObject()
+                            j.put("ok", true)
+                            j.put("png", Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP))
+                            j.toString()
+                        } finally {
+                            bitmap.recycle()
+                        }
                     }
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             errorJson(e)
         }
     }
@@ -248,6 +256,9 @@ object PdfBridge {
     @JvmStatic
     fun renameFile(path: String, newName: String): String {
         return try {
+            if (newName.contains('/') || newName.contains('\\') || newName == ".." || newName == ".") {
+                throw IllegalArgumentException("Nombre de archivo inválido")
+            }
             val f = File(path)
             val target = File(f.parentFile, newName)
             if (target.exists()) throw IllegalStateException("Ya existe un archivo con ese nombre")

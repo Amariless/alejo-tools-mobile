@@ -133,8 +133,14 @@ registerRenderer("ideasrapidas", {
                 wrap.appendChild(allChip);
             }
             S.categories.forEach(c => {
+                // NUEVO (auditoría -- hallazgo MEDIO #7): c.name es un nombre
+                // de categoría escrito por el usuario -- iba directo a
+                // innerHTML sin escapar, a diferencia del resto de la app
+                // que sí usa textContent para texto dinámico.
                 const chip = el("button", { className: `nt-chip${selectedId === c.id ? " nt-chip--active" : ""}` });
-                chip.innerHTML = `<span class="nt-chip-dot" style="background:${c.color}"></span>${c.name}`;
+                const dot = el("span", { className: "nt-chip-dot" });
+                dot.style.background = c.color;
+                chip.append(dot, document.createTextNode(c.name));
                 chip.onclick = () => onSelect(c.id);
                 wrap.appendChild(chip);
             });
@@ -153,8 +159,10 @@ registerRenderer("ideasrapidas", {
             }
             S.categories.forEach(c => {
                 const row = el("div", { className: "nt-cat-row" });
-                row.innerHTML = `<span class="nt-chip-dot" style="background:${c.color}"></span><span class="nt-cat-name">${c.name}</span>`;
-                const delBtn = el("button", { className: "nt-cat-delete", innerHTML: window.AlejoIcons.glyph("trash", 16) });
+                const dot = el("span", { className: "nt-chip-dot" });
+                dot.style.background = c.color;
+                row.append(dot, el("span", { className: "nt-cat-name", textContent: c.name }));
+                const delBtn = el("button", { className: "nt-cat-delete", innerHTML: window.AlejoIcons.glyph("trash", 16), ariaLabel: "Borrar categoría" });
                 delBtn.onclick = () => deleteCategory(c.id);
                 row.appendChild(delBtn);
                 list.appendChild(row);
@@ -221,7 +229,9 @@ registerRenderer("ideasrapidas", {
                 card.querySelector(".nt-card-text").textContent = previewText(note);
                 if (cat) {
                     const tag = card.querySelector(".nt-card-tags");
-                    tag.innerHTML = `<span class="nt-chip-dot" style="background:${cat.color}"></span>${cat.name}`;
+                    const dot = el("span", { className: "nt-chip-dot" });
+                    dot.style.background = cat.color;
+                    tag.append(dot, document.createTextNode(cat.name));
                 }
                 card.querySelector(".nt-card-date").textContent = fmtDate(note.updatedAt);
                 card.querySelector(".nt-delete-btn").onclick = (ev) => deleteNote(note.id, ev);

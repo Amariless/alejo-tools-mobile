@@ -14,14 +14,14 @@
   --surface-alt: #e5e5ea;
   --surface-hover: #fcfcfc;
   --text: #000000;
-  --text-muted: #8e8e93;
+  --text-muted: #6e6e73;
   --border: rgba(60, 60, 67, 0.12);
   --accent: #007aff;
   --accent-soft: rgba(0, 122, 255, 0.15);
   --accent-text: #ffffff;
-  --success: #34c759;
+  --success: #1a7431;
   --error: #ff3b30;
-  --warning: #ff9500;
+  --warning: #b25900;
 
   --radius-sm: 10px;
   --radius-md: 16px;
@@ -102,8 +102,8 @@ body {
 
 #app-bar-back, #app-bar-settings {
   flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border: none;
   background: transparent;

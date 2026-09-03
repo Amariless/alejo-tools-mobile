@@ -238,6 +238,18 @@ class MacroCameraActivity : AppCompatActivity() {
         dir.mkdirs()
         val file = File(dir, "capture_${System.currentTimeMillis()}.jpg")
         val output = ImageCapture.OutputFileOptions.Builder(file).build()
+        // NUEVO (auditoría -- hallazgo MENOR): si imageCapture.takePicture
+        // nunca invoca ni onImageSaved ni onError (fallo de hardware/driver
+        // de cámara), "capturing" quedaba en true para siempre y el botón
+        // de captura no volvía a responder. Timeout simple: si a los 10s
+        // seguimos "capturing" (ninguno de los dos callbacks bajó la
+        // bandera todavía), se libera la UI sola.
+        android.os.Handler(mainLooper).postDelayed({
+            if (capturing) {
+                capturing = false
+                focusLabel.text = "No se pudo sacar la foto: tiempo agotado"
+            }
+        }, 10000)
         imageCapture.takePicture(output, ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageSavedCallback {
             override fun onImageSaved(results: ImageCapture.OutputFileResults) {
                 CameraCapture.deliver(file.absolutePath, key)

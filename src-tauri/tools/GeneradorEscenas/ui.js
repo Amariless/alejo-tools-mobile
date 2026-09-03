@@ -722,6 +722,13 @@ const ESTETICAS = {
 
 const ESTETICA_IDS = Object.keys(ESTETICAS);
 
+// NUEVO (auditoría -- hallazgo MENOR #9): placeholder para paridad futura
+// con la versión de escritorio, que sí permite vocabulario personalizado
+// por el usuario -- acá se recortó a propósito para esta primera versión
+// mobile (ver el comentario grande más abajo). Queda siempre vacío, así
+// que pickCategoria/pickSimple lo usan como un no-op (concat con [] no
+// cambia nada); no se remueven esas referencias para no tener que volver
+// a tocar cada call site el día que se conecte a una UI real acá.
 let CUSTOM_VOCAB = {};
 
 function poolCategoria(general, esteticaId, categoria, fuerza, customExtra, usedSet) {
@@ -1107,16 +1114,19 @@ registerRenderer("scene", {
 
             const actions = el("div", { className: "sg-card-actions" });
             if (opts.savedView) {
-                const upBtn = el("button", { className: "sg-icon-btn", disabled: opts.idx === 0 });
+                // NUEVO (auditoría -- hallazgo MEDIO #7): botones solo-ícono
+                // sin aria-label -- un lector de pantalla los anunciaba sin
+                // nombre.
+                const upBtn = el("button", { className: "sg-icon-btn", disabled: opts.idx === 0, ariaLabel: "Mover arriba" });
                 upBtn.innerHTML = window.AlejoIcons.glyph("arrowUp", 16);
                 upBtn.onclick = () => moveSaved(opts.idx, -1);
-                const downBtn = el("button", { className: "sg-icon-btn", disabled: opts.idx === S.saved.length - 1 });
+                const downBtn = el("button", { className: "sg-icon-btn", disabled: opts.idx === S.saved.length - 1, ariaLabel: "Mover abajo" });
                 downBtn.innerHTML = window.AlejoIcons.glyph("arrowDown", 16);
                 downBtn.onclick = () => moveSaved(opts.idx, 1);
                 const copyBtn = el("button", { className: "sg-btn-icon-label" });
                 copyBtn.innerHTML = `${window.AlejoIcons.glyph("copy", 15)} Copiar`;
                 copyBtn.onclick = (e) => copyText(sceneCopyText(sc), e.currentTarget);
-                const delBtn = el("button", { className: "sg-del-btn sg-icon-btn" });
+                const delBtn = el("button", { className: "sg-del-btn sg-icon-btn", ariaLabel: "Eliminar" });
                 delBtn.innerHTML = window.AlejoIcons.glyph("trash", 16);
                 delBtn.onclick = () => deleteSaved(opts.idx);
                 actions.append(upBtn, downBtn, copyBtn, delBtn);
@@ -1166,13 +1176,13 @@ registerRenderer("scene", {
             wrap.appendChild(densRow);
 
             const lugarRow = el("div", { className: "input-row" });
-            const lugarInp = el("input", { type: "text", value: S.lugar, placeholder: "catedral, selva oscura... (opcional)" });
+            const lugarInp = el("input", { id: "sg-lugar-inp", type: "text", value: S.lugar, placeholder: "catedral, selva oscura... (opcional)" });
             lugarInp.oninput = (e) => { S.lugar = e.target.value; };
-            lugarRow.append(lbl("Lugar"), lugarInp);
+            lugarRow.append(lbl("Lugar", "sg-lugar-inp"), lugarInp);
             wrap.appendChild(lugarRow);
 
             const estRow = el("div", { className: "input-row" });
-            const estSel = el("select", {});
+            const estSel = el("select", { id: "sg-est-sel" });
             // NUEVO: sin emoji en las opciones -- un <select> nativo no
             // puede mostrar SVG adentro de sus <option>, así que en vez de
             // dejar el emoji suelto (única excepción al resto del rediseño)
@@ -1182,7 +1192,7 @@ registerRenderer("scene", {
                 estSel.appendChild(el("option", { value: id, textContent: e.nombre, selected: id === S.estetica }));
             });
             estSel.onchange = (e) => { S.estetica = e.target.value; };
-            estRow.append(lbl("Estética"), estSel);
+            estRow.append(lbl("Estética", "sg-est-sel"), estSel);
             wrap.appendChild(estRow);
 
             const fuerzaRow = el("div", { className: "sg-ctrl-block" });

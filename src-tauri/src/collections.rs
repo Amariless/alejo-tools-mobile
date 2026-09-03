@@ -54,15 +54,27 @@ fn collections_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("collections.json"))
 }
 
-fn read_all(app: &AppHandle) -> Vec<Collection> {
-    let Ok(path) = collections_path(app) else { return Vec::new() };
-    std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+// No colapsar un error de parseo (archivo corrupto) a "vacío" -- eso
+// borraría de facto todas las colecciones del usuario en la próxima
+// escritura. Solo "no existe todavía" cuenta como lista vacía.
+fn read_all(app: &AppHandle) -> Result<Vec<Collection>, String> {
+    let path = collections_path(app)?;
+    match std::fs::read_to_string(&path) {
+        Ok(s) => serde_json::from_str(&s).map_err(|e| format!("collections.json corrupto: {e}")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
+// Escritura atómica vía archivo temporal + rename -- un crash o corte de
+// energía a mitad de la escritura nunca deja collections.json truncado o
+// corrupto (rename es atómico dentro del mismo filesystem).
 fn write_all(app: &AppHandle, items: &[Collection]) -> Result<(), String> {
     let path = collections_path(app)?;
     let s = serde_json::to_string_pretty(items).map_err(|e| e.to_string())?;
-    std::fs::write(&path, s).map_err(|e| e.to_string())
+    let tmp_path = PathBuf::from(format!("{}.tmp", path.to_string_lossy()));
+    std::fs::write(&tmp_path, s).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
 }
 
 fn collection_dir(c: &Collection) -> PathBuf {
@@ -96,10 +108,10 @@ fn to_info(c: &Collection) -> CollectionInfo {
 }
 
 #[tauri::command]
-pub fn collections_list(app: AppHandle) -> Vec<CollectionInfo> {
-    let mut items = read_all(&app);
+pub fn collections_list(app: AppHandle) -> Result<Vec<CollectionInfo>, String> {
+    let mut items = read_all(&app)?;
     items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-    items.iter().map(to_info).collect()
+    Ok(items.iter().map(to_info).collect())
 }
 
 #[tauri::command]
@@ -108,7 +120,7 @@ pub fn collections_create(app: AppHandle, name: String, category: String) -> Res
     if name.is_empty() {
         return Err("El nombre de la colección no puede estar vacío.".to_string());
     }
-    let mut items = read_all(&app);
+    let mut items = read_all(&app)?;
     if items.iter().any(|c| c.name.eq_ignore_ascii_case(&name)) {
         return Err("Ya existe una colección con ese nombre.".to_string());
     }
@@ -120,6 +132,12 @@ pub fn collections_create(app: AppHandle, name: String, category: String) -> Res
         created_at: now,
         updated_at: now,
     };
+    // Dos nombres distintos pueden sanear a la misma carpeta física (ej.
+    // "a/b" y "a*b" sanean ambos a "ab") -- mismo chequeo que ya hace
+    // collections_rename para el mismo caso.
+    if collection_dir(&c).exists() {
+        return Err("Ya existe una carpeta con ese nombre en el storage.".to_string());
+    }
     std::fs::create_dir_all(collection_dir(&c)).map_err(|e| format!("No se pudo crear la carpeta: {e}"))?;
     let info = to_info(&c);
     items.push(c);
@@ -137,7 +155,7 @@ pub fn collections_rename(app: AppHandle, id: String, new_name: String) -> Resul
     if new_name.is_empty() {
         return Err("El nombre de la colección no puede estar vacío.".to_string());
     }
-    let mut items = read_all(&app);
+    let mut items = read_all(&app)?;
     if items.iter().any(|c| c.id != id && c.name.eq_ignore_ascii_case(&new_name)) {
         return Err("Ya existe una colección con ese nombre.".to_string());
     }
@@ -163,7 +181,7 @@ pub fn collections_rename(app: AppHandle, id: String, new_name: String) -> Resul
 
 #[tauri::command]
 pub fn collections_set_category(app: AppHandle, id: String, category: String) -> Result<(), String> {
-    let mut items = read_all(&app);
+    let mut items = read_all(&app)?;
     let c = items.iter_mut().find(|c| c.id == id).ok_or("Colección no encontrada")?;
     c.category = category;
     c.updated_at = now_millis();
@@ -172,7 +190,7 @@ pub fn collections_set_category(app: AppHandle, id: String, category: String) ->
 
 #[tauri::command]
 pub fn collections_delete(app: AppHandle, id: String) -> Result<(), String> {
-    let mut items = read_all(&app);
+    let mut items = read_all(&app)?;
     let idx = items.iter().position(|c| c.id == id).ok_or("Colección no encontrada")?;
     let dir = collection_dir(&items[idx]);
     if dir.exists() {
@@ -192,7 +210,7 @@ pub struct CollectionImage {
 
 #[tauri::command]
 pub fn collections_list_images(app: AppHandle, id: String) -> Result<Vec<CollectionImage>, String> {
-    let items = read_all(&app);
+    let items = read_all(&app)?;
     let c = items.iter().find(|c| c.id == id).ok_or("Colección no encontrada")?;
     let dir = collection_dir(c);
     let mut out = Vec::new();
@@ -222,24 +240,30 @@ pub async fn collections_add_image(app: AppHandle, id: String, filename: String,
     if !crate::storage::has_all_files_access(&app).await? {
         return Err("Falta el permiso \"Acceso a todos los archivos\" -- pedilo desde Sincronización o en Ajustes del sistema.".to_string());
     }
-    let mut items = read_all(&app);
+    let mut items = read_all(&app)?;
     let idx = items.iter().position(|c| c.id == id).ok_or("Colección no encontrada")?;
     let dir = collection_dir(&items[idx]);
     tokio::fs::create_dir_all(&dir).await.map_err(|e| format!("No se pudo crear la carpeta: {e}"))?;
     let bytes = crate::textures::base64_decode(&data_base64)?;
     let safe_name = filename.replace(['/', '\\'], "_");
+    if safe_name == ".." || safe_name == "." {
+        return Err("Nombre de archivo inválido.".to_string());
+    }
     let path = dir.join(&safe_name);
     tokio::fs::write(&path, &bytes).await.map_err(|e| format!("No se pudo guardar {safe_name}: {e}"))?;
     items[idx].updated_at = now_millis();
-    let _ = write_all(&app, &items);
+    write_all(&app, &items)?;
     Ok(path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
 pub fn collections_remove_image(app: AppHandle, id: String, filename: String) -> Result<(), String> {
-    let items = read_all(&app);
+    let items = read_all(&app)?;
     let c = items.iter().find(|c| c.id == id).ok_or("Colección no encontrada")?;
     let dir = collection_dir(c);
     let safe_name = filename.replace(['/', '\\'], "_");
+    if safe_name == ".." || safe_name == "." {
+        return Err("Nombre de archivo inválido.".to_string());
+    }
     std::fs::remove_file(dir.join(&safe_name)).map_err(|e| format!("No se pudo borrar: {e}"))
 }

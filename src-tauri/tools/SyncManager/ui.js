@@ -5,6 +5,18 @@
 // cambia de pestaña. A diferencia del escritorio, acá NO hay ningún
 // binario que arrancar/parar: solo se guarda host+API Key (una vez) y de
 // ahí en más es un cliente HTTP puro contra la app oficial de Syncthing.
+// NUEVO (auditoría -- hallazgo MEDIO #6): varios templates de este archivo
+// interpolan datos que vienen de OTROS DISPOSITIVOS en la red local (label
+// de carpeta ofrecida, nombre de dispositivo, nombre de archivo en
+// conflicto) directo en innerHTML -- un dispositivo Syncthing malicioso en
+// la misma red podría anunciar, por ejemplo, un label de carpeta con HTML
+// embebido y ejecutarlo en este WebView (que tiene invoke() disponible).
+// Se escapan esos valores antes de interpolarlos, en vez de reescribir
+// cada template a el()/textContent (cambio más grande, mismo resultado).
+function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 registerRenderer("syncmanager", {
     render(tool, area) {
         const root = el("div", { className: "sm-root" });
@@ -80,11 +92,11 @@ registerRenderer("syncmanager", {
             `;
             const hostRow = el("div", { className: "input-row" });
             const hostInp = el("input", { type: "text", id: "sm-host", value: (S.config && S.config.host) || "http://127.0.0.1:8384" });
-            hostRow.append(lbl("Dirección"), hostInp);
+            hostRow.append(lbl("Dirección", "sm-host"), hostInp);
 
             const keyRow = el("div", { className: "input-row" });
             const keyInp = el("input", { type: "text", id: "sm-key", placeholder: "API Key" });
-            keyRow.append(lbl("API Key"), keyInp);
+            keyRow.append(lbl("API Key", "sm-key"), keyInp);
 
             const err = el("p", { className: "sm-error hidden" });
 
@@ -141,9 +153,9 @@ registerRenderer("syncmanager", {
                     const suggestedPath = `/storage/emulated/0/Syncthing/${label}`;
                     const row = el("div", { className: "sm-card sm-pending" });
                     row.innerHTML = `
-                        <div class="sm-pending-name">${window.AlejoIcons ? window.AlejoIcons.glyph("folder", 16) : ""} ${label}</div>
-                        <div class="sm-pending-sub">ofrecida por ${deviceId.slice(0, 7)}…</div>
-                        <div class="input-row"><input type="text" class="sm-accept-path" value="${suggestedPath}"></div>
+                        <div class="sm-pending-name">${window.AlejoIcons ? window.AlejoIcons.glyph("folder", 16) : ""} ${escapeHtml(label)}</div>
+                        <div class="sm-pending-sub">ofrecida por ${escapeHtml(deviceId.slice(0, 7))}…</div>
+                        <div class="input-row"><input type="text" class="sm-accept-path" value="${escapeHtml(suggestedPath)}"></div>
                         <div class="sm-row-actions">
                           <button class="sm-accept-btn primary">Aceptar</button>
                           <button class="sm-dismiss-btn">Ignorar</button>
@@ -179,8 +191,8 @@ registerRenderer("syncmanager", {
                 const row = el("div", { className: "sm-card sm-folder" });
                 row.innerHTML = `
                     <div class="sm-folder-main">
-                        <div class="sm-folder-name">${window.AlejoIcons ? window.AlejoIcons.glyph("folder", 16) : ""} ${f.label || f.id}</div>
-                        <div class="sm-folder-sub">${state}${stt ? " · " + fmtBytes(stt.globalBytes) : ""}</div>
+                        <div class="sm-folder-name">${window.AlejoIcons ? window.AlejoIcons.glyph("folder", 16) : ""} ${escapeHtml(f.label || f.id)}</div>
+                        <div class="sm-folder-sub">${escapeHtml(state)}${stt ? " · " + fmtBytes(stt.globalBytes) : ""}</div>
                     </div>`;
                 const actions = el("div", { className: "sm-row-actions" });
                 const pauseBtn = el("button", { textContent: f.paused ? "Reanudar" : "Pausar" });
@@ -274,15 +286,15 @@ registerRenderer("syncmanager", {
         function renderConflictGroup(g) {
             const card = el("div", { className: "sm-card sm-conflict" });
             const head = el("div", { className: "sm-conflict-head" });
-            head.innerHTML = `<div class="sm-conflict-name">${window.AlejoIcons ? window.AlejoIcons.glyph("alert", 16) : ""} ${g.file_name}</div>
-                <div class="sm-conflict-sub">${g.folder_label} · ${g.variants.length} versiones</div>`;
+            head.innerHTML = `<div class="sm-conflict-name">${window.AlejoIcons ? window.AlejoIcons.glyph("alert", 16) : ""} ${escapeHtml(g.file_name)}</div>
+                <div class="sm-conflict-sub">${escapeHtml(g.folder_label)} · ${g.variants.length} versiones</div>`;
             card.appendChild(head);
             const list = el("div", { className: "sm-conflict-variants" });
             g.variants.forEach(v => {
                 const row = el("div", { className: "sm-variant-row" });
                 row.innerHTML = `
                     <div class="sm-variant-info">
-                        <div>${v.is_original ? "Original" : (v.device_name || v.device_short_id || "conflicto")}</div>
+                        <div>${v.is_original ? "Original" : escapeHtml(v.device_name || v.device_short_id || "conflicto")}</div>
                         <div class="sm-variant-sub">${fmtDate(v.modified_secs)} · ${fmtBytes(v.size_bytes)}</div>
                     </div>
                     <button class="sm-keep-btn">Quedarme con esta</button>`;
@@ -309,7 +321,7 @@ registerRenderer("syncmanager", {
             const card = el("div", { className: "sm-card sm-conflict" });
             const head = el("div", { className: "sm-conflict-head" });
             head.innerHTML = `<div class="sm-conflict-name">${window.AlejoIcons ? window.AlejoIcons.glyph("copy", 16) : ""} Archivos duplicados</div>
-                <div class="sm-conflict-sub">${g.folder_label} · ${g.paths.length} copias · ${fmtBytes(g.size_bytes)} c/u</div>`;
+                <div class="sm-conflict-sub">${escapeHtml(g.folder_label)} · ${g.paths.length} copias · ${fmtBytes(g.size_bytes)} c/u</div>`;
             card.appendChild(head);
             const list = el("div", { className: "sm-conflict-variants" });
             g.paths.forEach(p => {
@@ -317,8 +329,8 @@ registerRenderer("syncmanager", {
                 const row = el("div", { className: "sm-variant-row" });
                 row.innerHTML = `
                     <div class="sm-variant-info">
-                        <div>${name}</div>
-                        <div class="sm-variant-sub">${p}</div>
+                        <div>${escapeHtml(name)}</div>
+                        <div class="sm-variant-sub">${escapeHtml(p)}</div>
                     </div>
                     <button class="sm-keep-btn">Quedarme con esta</button>`;
                 row.querySelector(".sm-keep-btn").onclick = async (e) => {
@@ -392,7 +404,7 @@ registerRenderer("syncmanager", {
                 const row = el("div", { className: "sm-card sm-device" });
                 row.innerHTML = `
                     <div class="sm-device-dot ${online ? "ok" : ""}"></div>
-                    <div><div class="sm-device-name">${d.name || d.deviceID.slice(0, 7)}</div>
+                    <div><div class="sm-device-name">${escapeHtml(d.name || d.deviceID.slice(0, 7))}</div>
                     <div class="sm-device-sub">${online ? "Conectado" : "Desconectado"}</div></div>`;
                 wrap.appendChild(row);
             });
@@ -463,7 +475,12 @@ registerRenderer("syncmanager", {
             await loadConfig();
             renderView();
             await refreshAll();
-            setInterval(() => { if (S.config && S.config.api_key) refreshAll(); }, 10000);
+            // NUEVO (auditoría -- hallazgo MEDIO #5): SyncManager es
+            // persistente -- sin chequear si el contenedor está realmente
+            // visible, este poll seguía pegándole a la API REST de
+            // Syncthing cada 10s en segundo plano indefinidamente, aunque
+            // el usuario nunca vuelva a abrir esta herramienta.
+            setInterval(() => { if (S.config && S.config.api_key && area.style.display !== "none") refreshAll(); }, 10000);
         })();
     },
     onOutput() {},

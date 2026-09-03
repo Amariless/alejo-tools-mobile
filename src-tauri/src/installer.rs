@@ -141,7 +141,14 @@ pub async fn install_apk(app: &tauri::AppHandle, path: &str) -> Result<(), Strin
         })
         .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
 
-    rx.await.map_err(|_| "El instalador no respondió".to_string())?
+    // NUEVO (auditoría -- hallazgo MEDIO #7): sin timeout, si el closure
+    // JNI nunca llega a ejecutarse (ej. Activity destruida entre
+    // with_webview y exec), el comando quedaba colgado para siempre.
+    match tokio::time::timeout(std::time::Duration::from_secs(20), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("El instalador no respondió".to_string()),
+        Err(_) => Err("El instalador tardó demasiado en responder".to_string()),
+    }
 }
 
 #[cfg(not(target_os = "android"))]

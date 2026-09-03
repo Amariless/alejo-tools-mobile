@@ -349,7 +349,14 @@ fn should_skip_dir(name: &str) -> bool {
     name == ".stfolder" || name == ".stversions" || name.starts_with(".git")
 }
 
-fn scan_dir_for_conflicts(dir: &Path, out: &mut Vec<PathBuf>) {
+// NUEVO (auditoría -- hallazgo MENOR #9): sin límite de profundidad, un
+// enlace simbólico circular o un árbol de directorios patológico podía
+// recursar sin fin. 30 niveles es muchísimo más de lo que cualquier
+// estructura de carpetas real necesita.
+const MAX_SCAN_DEPTH: u32 = 30;
+
+fn scan_dir_for_conflicts(dir: &Path, out: &mut Vec<PathBuf>, depth: u32) {
+    if depth > MAX_SCAN_DEPTH { return; }
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -357,7 +364,7 @@ fn scan_dir_for_conflicts(dir: &Path, out: &mut Vec<PathBuf>) {
         let name_str = name.to_string_lossy();
         if path.is_dir() {
             if !should_skip_dir(&name_str) {
-                scan_dir_for_conflicts(&path, out);
+                scan_dir_for_conflicts(&path, out, depth + 1);
             }
         } else if name_str.contains(".sync-conflict-") {
             out.push(path);
@@ -433,8 +440,17 @@ pub async fn sync_list_conflicts(app: AppHandle) -> Result<Vec<ConflictGroup>, S
 
     let mut out: Vec<ConflictGroup> = Vec::new();
     for (folder_id, folder_label, root) in folders_with_local_path(&app).await? {
-        let mut conflict_files = Vec::new();
-        scan_dir_for_conflicts(&root, &mut conflict_files);
+        // NUEVO (auditoría -- hallazgo MEDIO #2): el recorrido recursivo del
+        // disco es I/O bloqueante -- corría directo dentro de la tarea async,
+        // a diferencia de sync_find_duplicate_files (más abajo) que ya lo
+        // envuelve en spawn_blocking. Mismo patrón acá.
+        let conflict_files = tokio::task::spawn_blocking(move || {
+            let mut out = Vec::new();
+            scan_dir_for_conflicts(&root, &mut out, 0);
+            out
+        })
+        .await
+        .unwrap_or_default();
         if conflict_files.is_empty() { continue; }
 
         let mut by_base: HashMap<PathBuf, Vec<(PathBuf, String)>> = HashMap::new();
@@ -492,17 +508,28 @@ pub async fn sync_resolve_conflict(
     if keep != base {
         std::fs::copy(&keep, &base).map_err(|e| format!("No se pudo aplicar la versión elegida: {e}"))?;
     }
+    // NUEVO (auditoría -- hallazgo MENOR #7): antes se ignoraban todos los
+    // errores de borrado con `let _ = ...`. Ahora se intentan TODOS los
+    // paths y se reportan al final los que fallaron.
+    let mut errors = Vec::new();
     for p in &all_paths {
         let pb = PathBuf::from(p);
         if pb != base {
-            let _ = std::fs::remove_file(&pb);
+            if let Err(e) = std::fs::remove_file(&pb) {
+                errors.push(format!("{p}: {e}"));
+            }
         }
     }
     let _ = st_post(&app, &format!("/rest/db/scan?folder={folder_id}")).await;
-    Ok(())
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("No se pudieron borrar algunas variantes: {}", errors.join("; ")))
+    }
 }
 
-fn scan_dir_for_files(dir: &Path, out: &mut Vec<PathBuf>) {
+fn scan_dir_for_files(dir: &Path, out: &mut Vec<PathBuf>, depth: u32) {
+    if depth > MAX_SCAN_DEPTH { return; }
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -510,7 +537,7 @@ fn scan_dir_for_files(dir: &Path, out: &mut Vec<PathBuf>) {
         let name_str = name.to_string_lossy();
         if path.is_dir() {
             if !should_skip_dir(&name_str) {
-                scan_dir_for_files(&path, out);
+                scan_dir_for_files(&path, out, depth + 1);
             }
         } else if !name_str.contains(".sync-conflict-") {
             out.push(path);
@@ -520,9 +547,15 @@ fn scan_dir_for_files(dir: &Path, out: &mut Vec<PathBuf>) {
 
 fn hash_file(path: &Path) -> Option<String> {
     use sha2::{Digest, Sha256};
-    let bytes = std::fs::read(path).ok()?;
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).ok()?;
     let mut hasher = Sha256::new();
-    hasher.update(&bytes);
+    let mut buf = [0u8; 128 * 1024];
+    loop {
+        let n = file.read(&mut buf).ok()?;
+        if n == 0 { break; }
+        hasher.update(&buf[..n]);
+    }
     Some(format!("{:x}", hasher.finalize()))
 }
 
@@ -536,7 +569,7 @@ pub struct DuplicateGroup {
 
 fn find_duplicates_in_folder(root: &Path, folder_id: &str, folder_label: &str) -> Vec<DuplicateGroup> {
     let mut files = Vec::new();
-    scan_dir_for_files(root, &mut files);
+    scan_dir_for_files(root, &mut files, 0);
 
     let mut by_size: HashMap<u64, Vec<PathBuf>> = HashMap::new();
     for p in files {
@@ -589,8 +622,18 @@ pub async fn sync_find_duplicate_files(app: AppHandle) -> Result<Vec<DuplicateGr
 /// para "quedate con esta copia, borrá las demás" como acción genérica.
 #[tauri::command]
 pub fn sync_delete_files(paths: Vec<String>) -> Result<(), String> {
+    // NUEVO (auditoría -- hallazgo MENOR #7): antes cortaba con `?` en el
+    // primer error, dejando sin intentar el resto de los paths pedidos.
+    // Ahora se intentan TODOS y se reportan al final los que fallaron.
+    let mut errors = Vec::new();
     for p in &paths {
-        std::fs::remove_file(p).map_err(|e| format!("No se pudo borrar {p}: {e}"))?;
+        if let Err(e) = std::fs::remove_file(p) {
+            errors.push(format!("{p}: {e}"));
+        }
     }
-    Ok(())
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("No se pudieron borrar algunos archivos: {}", errors.join("; ")))
+    }
 }

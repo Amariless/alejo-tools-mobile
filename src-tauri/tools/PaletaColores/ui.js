@@ -25,12 +25,18 @@
 // la foto está ese color. También se puede copiar la paleta entera como
 // lista de texto (un hex por línea) en vez de tener que tocar color por
 // color.
+// Estado a nivel de módulo (no local a render()) -- NUEVO (auditoría --
+// hallazgo MENOR): onLeave necesita poder revocar el blob URL de la foto
+// cargada aunque el usuario salga sin cargar una segunda foto; mismo
+// motivo/patrón que S en LectorDocs/ui.js.
+let S = null;
+
 registerRenderer("paletacolores", {
     render(tool, area) {
         const root = el("div", { className: "pc-root" });
         area.appendChild(root);
 
-        const S = {
+        S = {
             imageUrl: null,
             imageData: null, // ImageData de una versión reducida de la foto, para procesar rápido
             count: 6,
@@ -200,9 +206,12 @@ registerRenderer("paletacolores", {
             }
 
             const sliderRow = el("div", { className: "pc-slider-row" });
-            const sliderLabel = el("label", { textContent: `Detalle de la paleta: ${S.count} colores` });
+            // NUEVO (auditoría -- hallazgo MENOR): el <label> ya era real
+            // pero no estaba asociado al slider vía for/id -- un lector de
+            // pantalla no anunciaba el texto al enfocar el control.
+            const sliderLabel = el("label", { textContent: `Detalle de la paleta: ${S.count} colores`, htmlFor: "pc-count-slider" });
             sliderRow.appendChild(sliderLabel);
-            const slider = el("input", { type: "range", min: "3", max: "12", value: String(S.count) });
+            const slider = el("input", { id: "pc-count-slider", type: "range", min: "3", max: "12", value: String(S.count) });
             // NUEVO (bug real, arreglado): reextract() termina en
             // renderView() (root.innerHTML = ""), que en "input" (dispara
             // en cada tick de arrastre) destruye el propio <input> a mitad
@@ -241,7 +250,7 @@ registerRenderer("paletacolores", {
                 const text = el("div", { className: "pc-swatch-text" });
                 text.innerHTML = `<div class="pc-swatch-hex">${hex}</div><div class="pc-swatch-rgb">rgb(${c.r}, ${c.g}, ${c.b})</div>`;
 
-                const copyBtn = el("button", { className: "pc-swatch-copy" });
+                const copyBtn = el("button", { className: "pc-swatch-copy", ariaLabel: "Copiar código de color" });
                 copyBtn.innerHTML = S.copiedHex === hex ? window.AlejoIcons.glyph("check", 17) : window.AlejoIcons.glyph("copy", 17);
                 copyBtn.onclick = (e) => { e.stopPropagation(); copyHex(hex); };
 
@@ -261,4 +270,7 @@ registerRenderer("paletacolores", {
     },
     onOutput() {},
     onDone() {},
+    onLeave() {
+        if (S?.imageUrl?.startsWith("blob:")) URL.revokeObjectURL(S.imageUrl);
+    },
 });

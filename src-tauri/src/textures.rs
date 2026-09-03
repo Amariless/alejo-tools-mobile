@@ -12,6 +12,13 @@ use tauri::AppHandle;
 // pub(crate): reusado por collections.rs -- las colecciones son
 // subcarpetas DENTRO de esta misma carpeta general de texturas (pedido
 // del usuario), no un árbol separado.
+// TODO(storage): path hardcodeado al volumen "primary" de Android. No hay
+// hoy ninguna función ya expuesta (JNI, ver storage.rs/installer.rs) que
+// resuelva el directorio real de almacenamiento externo -- exponer una
+// requeriría agregar un método nuevo del lado Kotlin (MainActivity.kt),
+// fuera del alcance de este pase. Dejar como está: es el path que ya
+// funciona hoy para el caso común (un solo storage interno, volumen
+// "primary"), que es la enorme mayoría de los dispositivos Android reales.
 pub(crate) fn textures_dir() -> std::path::PathBuf {
     std::path::PathBuf::from("/storage/emulated/0/Pictures/AlejoTools/Texturas")
 }
@@ -79,6 +86,9 @@ pub async fn save_texture_png(app: AppHandle, filename: String, data_base64: Str
     // "albedo.png"), pero por las dudas evitamos que un "/" se cuele y
     // termine escribiendo fuera de la carpeta.
     let safe_name = filename.replace(['/', '\\'], "_");
+    if safe_name == ".." || safe_name == "." {
+        return Err("Nombre de archivo inválido.".to_string());
+    }
     let path = dir.join(&safe_name);
     tokio::fs::write(&path, &bytes).await.map_err(|e| format!("No se pudo guardar {safe_name}: {e}"))?;
     Ok(path.to_string_lossy().to_string())

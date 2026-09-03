@@ -24,6 +24,13 @@ const { listen }  = window.__TAURI__.event;
 let tools      = [];
 let activeTool = null;
 let isRunning  = false;
+// Guard de secuencia para selectTool(): navegar rápido entre herramientas
+// puede disparar dos llamadas async en paralelo (cada una con sus propios
+// await a invoke()) -- sin esto, la que termina después puede pisar el
+// DOM/estado que ya dejó la más reciente. Cada selectTool() toma su propio
+// número al entrar y, después de cada await, chequea si sigue siendo la
+// navegación más reciente antes de seguir tocando DOM/estado global.
+let navSeq = 0;
 
 const toolListEl     = document.getElementById("tool-list");
 const toolView       = document.getElementById("tool-view");
@@ -329,14 +336,23 @@ function renderToolList() {
     }
     list.forEach(tool => {
         const item = el("button", { className: "tool-list-item", type: "button" });
-        item.innerHTML = `
-            ${window.AlejoIcons ? window.AlejoIcons.toolBadge(tool.input, 44) : ""}
-            <div class="tool-list-item-text">
-                <div class="tool-list-item-name">${tool.name}</div>
-                <div class="tool-list-item-desc">${tool.description || ""}</div>
-            </div>
-            <span class="tool-list-item-chevron">${window.AlejoIcons ? window.AlejoIcons.glyph("chevronRight", 20) : ""}</span>
-        `;
+        // Íconos: siguen viniendo como HTML de confianza (window.AlejoIcons,
+        // no datos del usuario) -- parseados con un range en vez de un div
+        // wrapper para no meter un nodo extra en el árbol de flex. Lo que se
+        // arregla acá es el nombre/descripción de la herramienta, que sí
+        // pasan por textContent más abajo.
+        if (window.AlejoIcons) {
+            item.appendChild(document.createRange().createContextualFragment(window.AlejoIcons.toolBadge(tool.input, 44)));
+        }
+        const text = el("div", { className: "tool-list-item-text" });
+        text.append(
+            el("div", { className: "tool-list-item-name", textContent: tool.name }),
+            el("div", { className: "tool-list-item-desc", textContent: tool.description || "" })
+        );
+        item.appendChild(text);
+        const chevron = el("span", { className: "tool-list-item-chevron" });
+        if (window.AlejoIcons) chevron.appendChild(document.createRange().createContextualFragment(window.AlejoIcons.glyph("chevronRight", 20)));
+        item.appendChild(chevron);
         item.onclick = () => selectTool(tool);
         toolListEl.appendChild(item);
     });
@@ -409,8 +425,10 @@ appBarSettings.onclick = () => {
 
 async function selectTool(tool) {
     if (activeTool?.id === tool.id) return;
+    const mySeq = ++navSeq;
     const cameFromList = !activeTool;
     await deactivateCurrentTool();
+    if (mySeq !== navSeq) return;
 
     activeTool = tool; isRunning = false;
     showToolView();
@@ -422,6 +440,7 @@ async function selectTool(tool) {
     appBarTitle.textContent = tool.name;
     appBarDesc.textContent = tool.description;
     styleOverride.textContent = tool.has_style ? await invoke("get_tool_style", { toolId: tool.id }) : "";
+    if (mySeq !== navSeq) return;
 
     hideAllPersistentContainersExcept(tool.persistent ? tool.id : null);
 
@@ -478,7 +497,10 @@ function onToolDone(e) {
     const renderer = tools.find(t => t.id === tool);
     const r = renderer ? getRenderer(renderer.input) : null;
     if (!r?.onDone) return;
-    if (activeTool?.id !== tool) { r.onDone(code, toolOutput); return; }
+    // Si el evento es de una tool que ya no es la activa, no hay que tocar
+    // el DOM de #tool-output (que pertenece a la tool activa ACTUAL) -- solo
+    // avisarle al renderer sin pasarle el nodo de salida.
+    if (activeTool?.id !== tool) { r.onDone(code, null); return; }
     if (code === -1 || code === 1) return;
     isRunning = false;
     r.onDone(code, toolOutput);
@@ -486,13 +508,18 @@ function onToolDone(e) {
 
 // ── Helpers ────────────────────────────────────────────
 function el(tag, props = {}) { const e = document.createElement(tag); Object.assign(e, props); return e; }
-function lbl(text) { return el("div", { className: "input-label", textContent: text }); }
+// lbl(text, id): id opcional del input al que corresponde esta etiqueta --
+// cuando se pasa, genera un <label for="id"> con asociación programática
+// real (screen readers, tocar la etiqueta enfoca el input) en vez de un
+// <div> suelto. Los call-sites que no pasan id siguen funcionando igual
+// (label sin "for", mismo aspecto visual que antes).
+function lbl(text, id) { return el("label", { className: "input-label", textContent: text, htmlFor: id || "" }); }
 function classifyLine(l) { if (/✓|completad|listo|✅/i.test(l)) return "success"; if (/✗|error|fallo|❌/i.test(l)) return "error"; if (/warning|advertencia|⚠/i.test(l)) return "warning"; if (/^[\s═─=\-]{5,}/.test(l)) return "dim"; return ""; }
 function appendLine(out, text, cls = "") { const s = el("span", { className: "out-line" + (cls ? ` ${cls}` : ""), textContent: text }); out.appendChild(s); out.scrollTop = out.scrollHeight; }
 function appendSeparator(out) { out.appendChild(el("hr", { className: "out-separator" })); }
 function resetBtn(label) { isRunning = false; const b = document.getElementById("run-btn"); if (b) { b.disabled = false; b.textContent = label; } }
 function defaultOut(line, stream, out) { appendLine(out, line, stream === "stderr" ? "error" : classifyLine(line)); }
-function defaultDone(label) { return (code, out) => { appendSeparator(out); appendLine(out, code === 0 ? "Completado" : `Código ${code}`, code === 0 ? "success" : "error"); resetBtn(label); }; }
+function defaultDone(label) { return (code, out) => { if (!out) return; appendSeparator(out); appendLine(out, code === 0 ? "Completado" : `Código ${code}`, code === 0 ? "success" : "error"); resetBtn(label); }; }
 
 document.addEventListener("contextmenu", e => e.preventDefault());
 

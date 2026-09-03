@@ -328,7 +328,32 @@ registerRenderer("reloj", {
         function pmTick() {
             if (!S.pomodoro.running) return;
             if (remainingMs() <= 0) { onPhaseComplete(); return; }
-            if (S.tab === "pomodoro") render();
+            // NUEVO (auditoría -- hallazgo CRÍTICO #2): Reloj es persistente,
+            // así que este intervalo de 250ms sigue vivo aunque el usuario
+            // esté en otra herramienta -- S.tab === "pomodoro" solo dice qué
+            // pestaña interna quedó seleccionada, no si el contenedor de
+            // esta tool está realmente visible. Sin chequear "area" (el
+            // contenedor persistente que main.js oculta con display:none),
+            // se reconstruía todo el DOM del Pomodoro 4 veces por segundo en
+            // segundo plano indefinidamente.
+            if (S.tab !== "pomodoro" || area.style.display === "none") return;
+            if (S.pomodoro.showSettings) {
+                // NUEVO (auditoría -- hallazgo MEDIO #3): con los ajustes
+                // abiertos, un render() completo cada 250ms recreaba los
+                // <input> de esta sección -- el usuario no podía escribir un
+                // número de más de un dígito porque el campo perdía el foco
+                // en cada tick. Se actualiza el tiempo/barra por referencia
+                // en vez de reconstruir el árbol.
+                const timeEl = root.querySelector(".pm-time");
+                const barEl = root.querySelector(".pm-bar-fill");
+                if (timeEl) timeEl.textContent = fmtTime(remainingMs());
+                if (barEl) {
+                    const pct = 100 - (remainingMs() / phaseDurationMs(S.pomodoro.phase)) * 100;
+                    barEl.style.width = `${Math.min(100, Math.max(0, pct)).toFixed(1)}%`;
+                }
+                return;
+            }
+            render();
         }
 
         function startPomodoro() {
@@ -387,12 +412,13 @@ registerRenderer("reloj", {
             ];
             rows.forEach(([label, key]) => {
                 const row = el("div", { className: "input-row" });
-                const inp = el("input", { type: "number", min: "1", value: S.pomodoro.config[key] });
+                const inputId = `rj-pm-${key}`;
+                const inp = el("input", { id: inputId, type: "number", min: "1", value: S.pomodoro.config[key] });
                 inp.onchange = (e) => {
                     const v = Math.max(1, parseInt(e.target.value, 10) || 1);
                     savePomodoroConfig({ [key]: v });
                 };
-                row.append(lbl(label), inp);
+                row.append(lbl(label, inputId), inp);
                 wrap.appendChild(row);
             });
 
@@ -463,8 +489,13 @@ registerRenderer("reloj", {
 
         function startWorldTick() {
             if (S.world.tickHandle) clearInterval(S.world.tickHandle);
+            // NUEVO (auditoría -- hallazgo MEDIO #4): mismo problema que
+            // pmTick -- Reloj es persistente, así que sin chequear si el
+            // contenedor está realmente visible, este intervalo de 1s
+            // seguía renderizando el reloj mundial en segundo plano
+            // indefinidamente aunque el usuario esté en otra herramienta.
             S.world.tickHandle = setInterval(() => {
-                if (S.tab === "mundial" && !S.world.showPicker) render();
+                if (S.tab === "mundial" && !S.world.showPicker && area.style.display !== "none") render();
             }, 1000);
         }
 
@@ -479,7 +510,7 @@ registerRenderer("reloj", {
             const wrap = el("div", { className: "rj-picker" });
             const header = el("div", { className: "rj-picker-header" });
             header.appendChild(el("div", { className: "rj-picker-title", textContent: opts.title }));
-            const closeBtn = el("button", { className: "rj-picker-close", innerHTML: window.AlejoIcons.glyph("close", 18) });
+            const closeBtn = el("button", { className: "rj-picker-close", innerHTML: window.AlejoIcons.glyph("close", 18), ariaLabel: "Cerrar" });
             closeBtn.onclick = opts.onClose;
             header.appendChild(closeBtn);
             wrap.appendChild(header);
@@ -547,7 +578,7 @@ registerRenderer("reloj", {
                 const info = el("div", { className: "rj-world-info" });
                 info.innerHTML = `<div class="rj-world-city">${c.name}</div><div class="rj-world-sub">${c.country} · ${fmtCityDate(c.tz)}</div>`;
                 const time = el("div", { className: "rj-world-time", textContent: fmtCityTime(c.tz) });
-                const rmBtn = el("button", { className: "rj-world-remove", innerHTML: window.AlejoIcons.glyph("trash", 16) });
+                const rmBtn = el("button", { className: "rj-world-remove", innerHTML: window.AlejoIcons.glyph("trash", 16), ariaLabel: "Quitar ciudad" });
                 rmBtn.onclick = () => {
                     S.world.cityIds = S.world.cityIds.filter((x) => x !== id);
                     saveWorldConfig();

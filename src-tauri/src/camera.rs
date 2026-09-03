@@ -49,7 +49,14 @@ async fn call_activity_launch_camera(app: &AppHandle, key: &str) -> Result<(), S
         })
         .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
 
-    rx.await.map_err(|_| "No se obtuvo respuesta".to_string())?
+    // NUEVO (auditoría -- hallazgo MEDIO #7): sin timeout, si el closure
+    // JNI nunca llega a mandar nada por el canal, el comando quedaba
+    // colgado para siempre.
+    match tokio::time::timeout(std::time::Duration::from_secs(20), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("No se obtuvo respuesta".to_string()),
+        Err(_) => Err("La operación de cámara tardó demasiado".to_string()),
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -83,7 +90,14 @@ async fn call_camera_capture_poll(app: &AppHandle) -> Result<String, String> {
         })
         .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
 
-    rx.await.map_err(|_| "No se obtuvo respuesta".to_string())?
+    // NUEVO (auditoría -- hallazgo MEDIO #7): mismo motivo que
+    // call_activity_launch_camera -- sin timeout, un poll individual
+    // colgado dejaba el frontend esperando esa promesa sin límite.
+    match tokio::time::timeout(std::time::Duration::from_secs(20), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("No se obtuvo respuesta".to_string()),
+        Err(_) => Err("La operación de cámara tardó demasiado".to_string()),
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -128,8 +142,24 @@ pub async fn camera_capture_poll(app: AppHandle) -> Result<serde_json::Value, St
 /// como data: URL -- un data: URL nunca contamina un canvas sin importar
 /// el origen de la página.
 #[tauri::command]
-pub fn camera_read_as_data_url(path: String) -> Result<String, String> {
-    let bytes = std::fs::read(&path).map_err(|e| format!("No se pudo leer la foto: {e}"))?;
+pub fn camera_read_as_data_url(app: AppHandle, path: String) -> Result<String, String> {
+    use tauri::Manager as _;
+    // NUEVO (auditoría -- hallazgo CRÍTICO #2): este es un comando Tauri
+    // global, invocable desde CUALQUIER tool cargado en el mismo webview,
+    // no solo Creador de Texturas -- sin restricción, dejaba leer
+    // cualquier archivo legible por el proceso como data: URL. La única
+    // llamada real (loadCapturedPhoto, CreadorTexturas/ui.js) siempre pasa
+    // un path que MacroCameraActivity/CameraCapture.kt ya escribieron
+    // dentro de <cache>/camera_capture/ -- se exige que el path resuelva
+    // DENTRO de esa carpeta antes de leer nada.
+    let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    let allowed_dir = cache_dir.join("camera_capture");
+    let canonical = std::fs::canonicalize(&path).map_err(|e| format!("No se pudo leer la foto: {e}"))?;
+    let canonical_allowed = std::fs::canonicalize(&allowed_dir).map_err(|e| format!("No se pudo validar la carpeta de capturas: {e}"))?;
+    if !canonical.starts_with(&canonical_allowed) {
+        return Err("Ruta no permitida.".to_string());
+    }
+    let bytes = std::fs::read(&canonical).map_err(|e| format!("No se pudo leer la foto: {e}"))?;
     let mime = if path.to_lowercase().ends_with(".png") { "image/png" } else { "image/jpeg" };
     Ok(format!("data:{mime};base64,{}", crate::textures::base64_encode(&bytes)))
 }

@@ -39,7 +39,13 @@ pub async fn has_all_files_access(app: &tauri::AppHandle) -> Result<bool, String
         })
         .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
 
-    rx.await.map_err(|_| "No se obtuvo respuesta".to_string())?
+    // NUEVO (auditoría -- hallazgo MEDIO #7): sin timeout, un closure JNI
+    // colgado dejaba el comando esperando para siempre.
+    match tokio::time::timeout(std::time::Duration::from_secs(20), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("No se obtuvo respuesta".to_string()),
+        Err(_) => Err("La consulta de permiso tardó demasiado".to_string()),
+    }
 }
 
 #[cfg(target_os = "android")]
@@ -104,7 +110,11 @@ pub async fn request_all_files_access(app: &tauri::AppHandle) -> Result<(), Stri
         })
         .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
 
-    rx.await.map_err(|_| "No se obtuvo respuesta".to_string())?
+    match tokio::time::timeout(std::time::Duration::from_secs(20), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("No se obtuvo respuesta".to_string()),
+        Err(_) => Err("La solicitud de permiso tardó demasiado".to_string()),
+    }
 }
 
 #[cfg(not(target_os = "android"))]

@@ -27,6 +27,7 @@ class MainActivity : TauriActivity() {
   // (a diferencia de ACTION_IMAGE_CAPTURE crudo) ya maneja el permiso de
   // la URI de salida por nosotros.
   private lateinit var cameraCaptureLauncher: ActivityResultLauncher<Uri>
+  @Volatile
   private var pendingCameraOutputPath: String = ""
 
   // NUEVO (Creador de Texturas -- modo macro real, ver
@@ -36,6 +37,7 @@ class MainActivity : TauriActivity() {
   // CAMERA en tiempo de ejecución -- mismo motivo de "registrar ANTES de
   // STARTED" que los demás launchers de acá arriba.
   private lateinit var cameraPermissionLauncher: ActivityResultLauncher<String>
+  @Volatile
   private var pendingMacroCameraKey: String = ""
 
   // NUEVO -- qué configuración pidió el picker (ej. "music"), para que
@@ -45,7 +47,13 @@ class MainActivity : TauriActivity() {
   // savedInstanceState -- si Android mata y recrea esta Activity, este
   // valor tiene que sobrevivir junto con el propio ActivityResultLauncher
   // (que la propia librería ya restaura solo).
+  // NUEVO (auditoría -- hallazgo MEDIO): mismo patrón @Volatile que los
+  // dos campos de arriba -- se escriben en el hilo que ejecuta la llamada
+  // JNI (no garantizado que sea el hilo de UI) y se leen en el callback
+  // del launcher (hilo de UI).
+  @Volatile
   private var pendingFolderPickKey: String = ""
+  @Volatile
   private var pendingCameraKey: String = ""
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -138,7 +146,14 @@ class MainActivity : TauriActivity() {
   /// hilo principal.
   fun launchFolderPicker(key: String) {
     pendingFolderPickKey = key
-    runOnUiThread { folderPickerLauncher.launch(null) }
+    // NUEVO (auditoría -- hallazgo MENOR): .launch() puede lanzar
+    // IllegalStateException en una carrera rara con la recreación de la
+    // Activity -- sin capturarla acá, una excepción no atrapada en el
+    // hilo de UI crashea toda la app.
+    runOnUiThread {
+      try { folderPickerLauncher.launch(null) }
+      catch (e: Exception) { FolderPicker.deliver("", key) }
+    }
   }
 
   /// Lanza la app de cámara COMPLETA del sistema vía intent
@@ -159,7 +174,10 @@ class MainActivity : TauriActivity() {
     pendingCameraKey = key
     pendingCameraOutputPath = file.absolutePath
     val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-    runOnUiThread { cameraCaptureLauncher.launch(uri) }
+    runOnUiThread {
+      try { cameraCaptureLauncher.launch(uri) }
+      catch (e: Exception) { CameraCapture.deliver("", key) }
+    }
   }
 
   /// Llamado por JNI desde camera.rs (camera_capture_start) -- Creador de
@@ -178,7 +196,10 @@ class MainActivity : TauriActivity() {
       }
     } else {
       pendingMacroCameraKey = key
-      runOnUiThread { cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA) }
+      runOnUiThread {
+        try { cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA) }
+        catch (e: Exception) { CameraCapture.deliver("", key) }
+      }
     }
   }
 

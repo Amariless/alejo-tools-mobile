@@ -56,7 +56,13 @@ async fn call_activity_launch_folder_picker(app: &AppHandle, key: &str) -> Resul
         })
         .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
 
-    rx.await.map_err(|_| "No se obtuvo respuesta".to_string())?
+    // NUEVO (auditoría -- hallazgo MEDIO #7): sin timeout, un closure JNI
+    // colgado dejaba el comando esperando para siempre.
+    match tokio::time::timeout(std::time::Duration::from_secs(20), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("No se obtuvo respuesta".to_string()),
+        Err(_) => Err("El selector de carpeta tardó demasiado en responder".to_string()),
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -90,7 +96,11 @@ async fn call_folder_picker_poll(app: &AppHandle) -> Result<String, String> {
         })
         .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
 
-    rx.await.map_err(|_| "No se obtuvo respuesta".to_string())?
+    match tokio::time::timeout(std::time::Duration::from_secs(20), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("No se obtuvo respuesta".to_string()),
+        Err(_) => Err("El selector de carpeta tardó demasiado en responder".to_string()),
+    }
 }
 
 #[cfg(not(target_os = "android"))]

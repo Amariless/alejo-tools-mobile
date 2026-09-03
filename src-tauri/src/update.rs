@@ -48,8 +48,14 @@ pub struct UpdateInfo {
 /// componente no numérico se trata como 0 -- alcanza para tags tipo
 /// "v1.2.3" (el 'v' se saca antes de llamar a esto).
 fn version_gt(a: &str, b: &str) -> bool {
+    // NUEVO (auditoría -- hallazgo MENOR): un componente con sufijo de
+    // pre-release (ej. "3-beta") se cortaba en el primer no-numérico y
+    // parseaba como 0 en vez de 3 -- se corta en el primer '-' antes de
+    // parsear ese componente como número.
     let parse = |s: &str| -> Vec<u64> {
-        s.split('.').map(|p| p.trim().parse::<u64>().unwrap_or(0)).collect()
+        s.split('.')
+            .map(|p| p.trim().split('-').next().unwrap_or("").parse::<u64>().unwrap_or(0))
+            .collect()
     };
     let (va, vb) = (parse(a), parse(b));
     for i in 0..va.len().max(vb.len()) {
@@ -136,12 +142,43 @@ pub async fn download_and_install_update(app: AppHandle, url: String) -> Result<
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
 
+    // NUEVO (auditoría -- hallazgo CRÍTICO #6): este es un comando Tauri
+    // global, invocable desde CUALQUIER tool cargado en el mismo webview --
+    // sin esta validación, aceptaba cualquier URL y la descargaba +
+    // ofrecía instalarla como APK. Los assets reales de un Release siempre
+    // llegan como "browser_download_url" de este mismo repo de GitHub (ver
+    // check_for_update más arriba) -- se exige ese mismo prefijo antes de
+    // pedir nada por red.
+    const ALLOWED_PREFIX: &str = "https://github.com/Amariless/alejo-tools-mobile/";
+    if !url.starts_with(ALLOWED_PREFIX) {
+        return Err("URL de actualización no permitida.".to_string());
+    }
+
     let dest = update_apk_path(&app)?;
     // Por si quedó un archivo de una descarga anterior interrumpida --
     // nunca hace falta más de una copia a la vez.
     let _ = std::fs::remove_file(&dest);
 
     let client = crate::tls::client("AlejoToolsMobile-Updater/1.0", 120);
+
+    // NUEVO (auditoría -- hallazgo MEDIO): verificación de checksum
+    // best-effort. Si el Release publica un archivo "<apk>.sha256" junto
+    // al .apk (formato típico de "sha256sum", primera palabra = hex del
+    // hash), se lo usa para detectar una descarga corrupta o un asset
+    // reemplazado antes de instalar nada. Hoy el proceso de release de
+    // este repo no genera ese archivo todavía (fuera del alcance de este
+    // pase, es un cambio del workflow de publicación, no del código) --
+    // por eso un 404 acá no es un error: simplemente no hay nada que
+    // verificar, igual que el comportamiento antes de este fix.
+    let expected_sha256: Option<String> = {
+        let sha_url = format!("{url}.sha256");
+        match client.get(&sha_url).send().await {
+            Ok(r) if r.status().is_success() => r.text().await.ok()
+                .and_then(|t| t.split_whitespace().next().map(|s| s.to_lowercase())),
+            _ => None,
+        }
+    };
+
     let resp = client.get(&url).send().await.map_err(|e| format!("No se pudo empezar la descarga: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("GitHub respondió {} al descargar", resp.status()));
@@ -152,10 +189,13 @@ pub async fn download_and_install_update(app: AppHandle, url: String) -> Result<
     let mut downloaded: u64 = 0;
     let mut stream = resp.bytes_stream();
     let mut last_emit = std::time::Instant::now();
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("Error durante la descarga: {e}"))?;
         file.write_all(&chunk).await.map_err(|e| format!("No se pudo escribir el archivo: {e}"))?;
+        hasher.update(&chunk);
         downloaded += chunk.len() as u64;
         // No emitir un evento por cada chunk (miles por segundo a buena
         // velocidad) -- alcanza con actualizar la UI unas 10 veces por
@@ -172,6 +212,14 @@ pub async fn download_and_install_update(app: AppHandle, url: String) -> Result<
     file.flush().await.map_err(|e| e.to_string())?;
     drop(file);
     let _ = app.emit("update-download-progress", DownloadProgress { downloaded, total, percent: Some(100.0) });
+
+    if let Some(expected) = expected_sha256 {
+        let actual = format!("{:x}", hasher.finalize());
+        if actual != expected {
+            let _ = std::fs::remove_file(&dest);
+            return Err("El archivo descargado no coincide con el checksum publicado -- puede estar corrupto o haber sido reemplazado. No se instaló nada.".to_string());
+        }
+    }
 
     let dest_str = dest.to_string_lossy().to_string();
     crate::installer::install_apk(&app, &dest_str).await?;
