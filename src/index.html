@@ -24,13 +24,39 @@
     </header>
 
     <main id="content">
-      <div id="tool-list"></div>
+      <!-- Hub / pantalla base: buscador + Bento grid + tab bar de pilares -->
+      <div id="hub-view">
+        <div id="hub-search-row">
+          <div id="hub-search-icon"></div>
+          <input id="hub-search" type="search" placeholder="Buscar herramienta..." autocomplete="off" />
+        </div>
+        <div id="hub-bento"></div>
+        <!-- Resultados del buscador -- mismas filas que #category-list, se
+             muestra en vez de #hub-bento mientras hay texto escrito. -->
+        <div id="hub-search-results" class="hidden"></div>
+      </div>
 
+      <!-- Vista de categoría: lista filtrada de un pilar -->
+      <div id="category-view" class="hidden">
+        <div id="category-title"></div>
+        <div id="category-list"></div>
+      </div>
+
+      <!-- Herramienta a pantalla completa -- sin cambios -->
       <div id="tool-view" class="hidden">
         <div id="tool-input-area"></div>
         <div id="tool-output"></div>
       </div>
     </main>
+
+    <!-- Tab bar de 4 pilares -- visible en Hub y en categoría, oculta
+         dentro de una herramienta (mismo criterio que #app-bar-back). -->
+    <nav id="pillar-tabbar">
+      <button class="pillar-tab" data-pillar="hub" aria-label="Favoritos"><span class="pt-ico"></span><span class="pt-lbl">Favoritos</span></button>
+      <button class="pillar-tab" data-pillar="connect" aria-label="Conectividad"><span class="pt-ico"></span><span class="pt-lbl">Conecta</span></button>
+      <button class="pillar-tab" data-pillar="product" aria-label="Productividad"><span class="pt-ico"></span><span class="pt-lbl">Product.</span></button>
+      <button class="pillar-tab" data-pillar="create" aria-label="Suite Creativa"><span class="pt-ico"></span><span class="pt-lbl">Creativa</span></button>
+    </nav>
   </div>
   <style id="tool-style-override"></style>
   <script src="/icons.js" defer></script>

@@ -18,6 +18,38 @@
 // NO se pide la ubicación real del dispositivo -- el usuario elige una
 // ciudad de la misma lista curada que usa el reloj mundial (evita pedir
 // permiso de localización solo para esto).
+//
+// Estado a nivel de módulo (no local a render()) -- NUEVO (Hub con
+// tarjetas en vivo, propuesta de diseño aprobada): getWidgetSummary(),
+// más abajo, necesita leer el estado del Pomodoro desde AFUERA de
+// render() (main.js lo llama para pintar la tarjeta del Hub) -- mismo
+// motivo/patrón que S en LectorDocs/ui.js. phaseDurationMs/remainingMs/
+// fmtTime son puras (no tocan DOM), así que se hoistean junto con S en
+// vez de duplicar esa cuenta en dos lugares.
+let S = null;
+const PHASE_LABEL = { work: "Trabajo", short_break: "Descanso corto", long_break: "Descanso largo" };
+
+function phaseDurationMs(phase) {
+    const p = S.pomodoro;
+    const mins = phase === "work" ? p.config.workMinutes
+        : phase === "short_break" ? p.config.shortBreakMinutes
+        : p.config.longBreakMinutes;
+    return Math.max(1, mins) * 60 * 1000;
+}
+
+function remainingMs() {
+    const p = S.pomodoro;
+    if (p.running && p.phaseEndAt != null) return Math.max(0, p.phaseEndAt - Date.now());
+    if (p.remainingMsPaused != null) return p.remainingMsPaused;
+    return phaseDurationMs(p.phase);
+}
+
+function fmtTime(ms) {
+    const total = Math.ceil(ms / 1000);
+    const m = Math.floor(total / 60), s = total % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
 registerRenderer("reloj", {
     render(tool, area) {
         const root = el("div", { className: "rj-root" });
@@ -239,7 +271,7 @@ registerRenderer("reloj", {
         ];
         const CITY_BY_ID = Object.fromEntries(CITIES.map((c) => [c.id, c]));
 
-        const S = {
+        S = {
             tab: "pomodoro", // pomodoro | mundial | clima
             pomodoro: {
                 config: { workMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, longBreakInterval: 4, autoStart: true, soundEnabled: true },
@@ -257,29 +289,10 @@ registerRenderer("reloj", {
 
         // ── Pomodoro (sin cambios de fondo respecto de la versión anterior,
         // solo pasa a vivir bajo S.pomodoro y a devolver un nodo en vez de
-        // pintarse directo en root -- ver render() al final del archivo) ──
-        const PHASE_LABEL = { work: "Trabajo", short_break: "Descanso corto", long_break: "Descanso largo" };
-
-        function phaseDurationMs(phase) {
-            const p = S.pomodoro;
-            const mins = phase === "work" ? p.config.workMinutes
-                : phase === "short_break" ? p.config.shortBreakMinutes
-                : p.config.longBreakMinutes;
-            return Math.max(1, mins) * 60 * 1000;
-        }
-
-        function remainingMs() {
-            const p = S.pomodoro;
-            if (p.running && p.phaseEndAt != null) return Math.max(0, p.phaseEndAt - Date.now());
-            if (p.remainingMsPaused != null) return p.remainingMsPaused;
-            return phaseDurationMs(p.phase);
-        }
-
-        function fmtTime(ms) {
-            const total = Math.ceil(ms / 1000);
-            const m = Math.floor(total / 60), s = total % 60;
-            return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-        }
+        // pintarse directo en root -- ver render() al final del archivo).
+        // PHASE_LABEL/phaseDurationMs/remainingMs/fmtTime ahora viven a
+        // nivel de módulo (ver arriba, antes de registerRenderer) --
+        // getWidgetSummary() los necesita fuera de este closure. ──
 
         function playBeep() {
             if (!S.pomodoro.config.soundEnabled) return;
@@ -729,4 +742,18 @@ registerRenderer("reloj", {
     },
     onOutput() {},
     onDone() {},
+    // NUEVO (Hub con tarjetas en vivo, propuesta de diseño aprobada): el
+    // Hub llama esto (si existe) para pintar la tarjeta ancha de Reloj sin
+    // tener que abrir la herramienta. Solo hay algo que mostrar mientras
+    // el Pomodoro está corriendo -- null hace que el Hub caiga a una
+    // tarjeta compacta normal (mismo criterio que cualquier otra tool).
+    getWidgetSummary() {
+        if (!S || !S.pomodoro.running) return null;
+        const p = S.pomodoro;
+        return {
+            title: PHASE_LABEL[p.phase],
+            subtitle: `${fmtTime(remainingMs())} restantes`,
+            progress: 1 - remainingMs() / phaseDurationMs(p.phase),
+        };
+    },
 });

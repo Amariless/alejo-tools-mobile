@@ -17,12 +17,19 @@ function escapeHtml(s) {
     return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// Estado a nivel de módulo (no local a render()) -- NUEVO (Hub con
+// tarjetas en vivo, propuesta de diseño aprobada): getWidgetSummary(),
+// más abajo, necesita leer el último estado ya cargado por refreshAll()
+// desde AFUERA de render() (main.js lo llama para pintar la tarjeta del
+// Hub) -- mismo motivo/patrón que S en LectorDocs/ui.js.
+let S = null;
+
 registerRenderer("syncmanager", {
     render(tool, area) {
         const root = el("div", { className: "sm-root" });
         area.appendChild(root);
 
-        const S = {
+        S = {
             config: { host: "http://127.0.0.1:8384", api_key: "" },
             status: null,
             folders: [],
@@ -485,4 +492,19 @@ registerRenderer("syncmanager", {
     },
     onOutput() {},
     onDone() {},
+    // NUEVO (Hub con tarjetas en vivo, propuesta de diseño aprobada): el
+    // Hub llama esto (si existe) para pintar la tarjeta ancha de
+    // Sincronización sin tener que abrir la herramienta -- reusa el
+    // último S.status que refreshAll() ya cargó (cada 10s), no dispara
+    // ningún request de red propio. null mientras todavía no cargó nada
+    // (primera vez, antes del primer refreshAll) o si nunca se configuró
+    // host/API key -- el Hub cae a una tarjeta compacta normal.
+    getWidgetSummary() {
+        if (!S || !S.config?.api_key) return null;
+        if (!S.status) return { title: "Sincronización", subtitle: "Consultando..." };
+        return {
+            title: "Sincronización",
+            subtitle: S.status.connected ? "Al día" : (S.status.error || "Desconectado"),
+        };
+    },
 });

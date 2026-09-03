@@ -8,11 +8,15 @@
 // runTool, appendLine, etc.) — así una herramienta portada desde el
 // escritorio necesita tocar lo mínimo de su ui.js para correr acá.
 //
-// Navegación (pedido del usuario -- antes era una barra de pestañas
-// abajo): pantalla de inicio con la lista de herramientas, tocar una
-// entra a pantalla completa con una flecha "←" arriba a la izquierda
-// para volver a la lista -- patrón estándar de navegación por lista en
-// Android/iOS, en vez de tabs siempre visibles.
+// Navegación (rediseño por pilares, propuesta de diseño aprobada): la
+// pantalla base ya no es una lista plana -- es un Hub en Bento grid
+// (tarjetas en vivo para las herramientas persistentes, accesos directos
+// para el resto) más un buscador universal, con una barra inferior de 4
+// pilares (Favoritos, Conectividad, Productividad, Suite Creativa) que
+// filtra a una lista de esa categoría. Cualquier herramienta se abre en
+// como mucho 2 toques (tab + tarjeta) o 1 (buscador). Tocar una
+// herramienta entra a pantalla completa con una flecha "←" arriba a la
+// izquierda para volver -- eso no cambia.
 //
 // Lo que NO se portó (no tiene sentido en un teléfono, o es exclusivo de
 // Windows en el original): barra de título sin bordes + drag, bandeja del
@@ -32,7 +36,6 @@ let isRunning  = false;
 // navegación más reciente antes de seguir tocando DOM/estado global.
 let navSeq = 0;
 
-const toolListEl     = document.getElementById("tool-list");
 const toolView       = document.getElementById("tool-view");
 const appBar         = document.getElementById("app-bar");
 const appBarBack     = document.getElementById("app-bar-back");
@@ -43,6 +46,28 @@ const appBarDesc     = document.getElementById("app-bar-desc");
 const toolInputArea  = document.getElementById("tool-input-area");
 const toolOutput     = document.getElementById("tool-output");
 const styleOverride  = document.getElementById("tool-style-override");
+
+// ── Hub (pantalla base) — pedido del usuario: reemplaza la lista plana
+// por un Dashboard en Bento grid con 4 pilares de navegación (Conectividad,
+// Productividad, Suite Creativa, Favoritos/Hub) más un buscador universal.
+// Ver la propuesta de diseño aprobada para el detalle de la arquitectura.
+const hubView          = document.getElementById("hub-view");
+const hubSearchIcon    = document.getElementById("hub-search-icon");
+const hubSearchInput   = document.getElementById("hub-search");
+const hubBento         = document.getElementById("hub-bento");
+const hubSearchResults = document.getElementById("hub-search-results");
+const categoryView     = document.getElementById("category-view");
+const categoryTitleEl  = document.getElementById("category-title");
+const categoryListEl   = document.getElementById("category-list");
+const pillarTabbar     = document.getElementById("pillar-tabbar");
+const pillarTabs       = Array.from(document.querySelectorAll(".pillar-tab"));
+
+const PILLAR_INFO = {
+    hub:     { label: "Favoritos",     glyph: "home" },
+    connect: { label: "Conectividad",  glyph: "sync" },
+    product: { label: "Productividad", glyph: "clock" },
+    create:  { label: "Suite Creativa", glyph: "palette" },
+};
 
 // ════════════════════════════════════════════════════════
 //  BOTÓN FÍSICO/GESTO DE "ATRÁS" DE ANDROID — Tauri ya trae un manejador
@@ -282,8 +307,21 @@ async function init() {
     await listen("tool-output", onToolOutput);
     await listen("tool-done", onToolDone);
 
-    renderToolList();
-    showList();
+    // NUEVO (Hub con tarjetas en vivo): las herramientas "persistent"
+    // (Sincronización, Reloj) hoy recién montaban su render() la primera
+    // vez que el usuario las abría a mano -- el Hub necesita poder leer su
+    // estado (getWidgetSummary()) desde el arranque, así que se
+    // pre-inicializan en frío, ocultas, apenas arranca la app.
+    tools.filter(t => t.persistent && t.has_ui).forEach(tool => {
+        const entry = getOrCreatePersistentContainer(tool);
+        if (!entry.initialized) {
+            entry.initialized = true;
+            getRenderer(tool.input).render(tool, entry.el, toolOutput);
+        }
+    });
+
+    initHub();
+    showHub();
 
     await checkDeepLinks();
 }
@@ -327,34 +365,193 @@ function visibleTools() {
     return tools.filter(t => t.input !== "settings");
 }
 
-function renderToolList() {
-    toolListEl.innerHTML = "";
-    const list = visibleTools();
+// ════════════════════════════════════════════════════════
+//  HUB — Dashboard en Bento grid + navegación por pilares.
+// ════════════════════════════════════════════════════════
+
+// Pantalla "base" activa -- a dónde volver desde una herramienta
+// (goBackToBase) y qué tab de la barra inferior queda resaltado. Cambiar
+// de tab NO empuja al backStack (es navegación lateral entre pares, no
+// "profundidad") -- mismo criterio que un bottom-nav nativo.
+let currentBase = { view: "hub", pillar: null };
+
+function normalize(s) {
+    return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+function pillarOf(tool) {
+    return window.AlejoIcons ? window.AlejoIcons.TOOL_PILLAR[tool.input] : null;
+}
+
+// NUEVO: "create2" (Generador de Escenas -- generativo) es un matiz DENTRO
+// del pilar Suite Creativa, no una quinta pestaña -- pedir la categoría
+// "create" tiene que traer también las tools "create2" (mismo criterio
+// que la propuesta de diseño aprobada: conviven en la misma lista, solo
+// con un acento de ícono distinto).
+function pillarTools(pillarKey) {
+    return visibleTools().filter(t => {
+        const p = pillarOf(t);
+        return p === pillarKey || (pillarKey === "create" && p === "create2");
+    });
+}
+
+function badgeEl(tool, size) {
+    const b = el("div", { className: size === "list" ? "list-row-icon" : "hub-card-icon" });
+    b.style.background = window.AlejoIcons ? window.AlejoIcons.iconColor(tool.input) : "#64748b";
+    if (window.AlejoIcons) {
+        const glyphSize = size === "list" ? 20 : 16;
+        b.appendChild(document.createRange().createContextualFragment(window.AlejoIcons.glyph(TOOL_GLYPH_FALLBACK[tool.input] || "dots", glyphSize)));
+    }
+    return b;
+}
+
+// Mismo mapeo símbolo-por-herramienta que ya usa toolBadge() del lado de
+// icons.js (TOOL_GLYPH ahí es privado al módulo) -- se repite acá porque
+// hub-card-icon/list-row-icon usan su propio layout (círculo de color +
+// glifo suelto), no el .tool-badge cuadrado redondeado original.
+const TOOL_GLYPH_FALLBACK = {
+    syncmanager: "sync", descargarmusica: "music", reloj: "clock",
+    ideasrapidas: "note", gastos: "money", paletacolores: "palette",
+    creadortexturas: "bricks", scene: "clapper", lectordocs: "doc", settings: "gear",
+};
+
+function buildListRow(tool) {
+    const row = el("button", { className: "list-row", type: "button" });
+    row.appendChild(badgeEl(tool, "list"));
+    const text = el("div", { className: "list-row-text" });
+    text.append(
+        el("div", { className: "list-row-name", textContent: tool.name }),
+        el("div", { className: "list-row-desc", textContent: tool.description || "" })
+    );
+    row.appendChild(text);
+    const chev = el("span", { className: "list-row-chevron" });
+    if (window.AlejoIcons) chev.appendChild(document.createRange().createContextualFragment(window.AlejoIcons.glyph("chevronRight", 18)));
+    row.appendChild(chev);
+    row.onclick = () => selectTool(tool);
+    return row;
+}
+
+function renderRowList(container, list, emptyMsg) {
+    container.innerHTML = "";
     if (!list.length) {
-        toolListEl.appendChild(el("p", { className: "tool-list-empty", textContent: "Sin herramientas todavía" }));
+        container.appendChild(el("p", { className: "list-empty", textContent: emptyMsg }));
         return;
     }
-    list.forEach(tool => {
-        const item = el("button", { className: "tool-list-item", type: "button" });
-        // Íconos: siguen viniendo como HTML de confianza (window.AlejoIcons,
-        // no datos del usuario) -- parseados con un range en vez de un div
-        // wrapper para no meter un nodo extra en el árbol de flex. Lo que se
-        // arregla acá es el nombre/descripción de la herramienta, que sí
-        // pasan por textContent más abajo.
-        if (window.AlejoIcons) {
-            item.appendChild(document.createRange().createContextualFragment(window.AlejoIcons.toolBadge(tool.input, 44)));
+    list.forEach(tool => container.appendChild(buildListRow(tool)));
+}
+
+// Tarjeta ancha "en vivo" para una herramienta persistente -- lee
+// getWidgetSummary() del renderer si lo implementa (opcional en el
+// contrato, ver Reloj/ui.js y SyncManager/ui.js). Si no hay resumen (la
+// tool no lo implementa, o hoy no tiene nada que mostrar -- ej. Pomodoro
+// parado), cae a una tarjeta compacta normal.
+function buildWideCard(tool) {
+    const r = getRenderer(tool.input);
+    const summary = r?.getWidgetSummary ? r.getWidgetSummary() : null;
+    if (!summary) return buildCompactCard(tool);
+
+    const card = el("button", { className: "hub-card hub-card--wide", type: "button" });
+    const main = el("div", { className: "hub-card-main" });
+    main.appendChild(badgeEl(tool, "wide"));
+    const text = el("div", { className: "hub-card-text" });
+    text.append(
+        el("div", { className: "hub-card-title", textContent: summary.title || tool.name }),
+        el("div", { className: "hub-card-sub", textContent: summary.subtitle || "" })
+    );
+    main.appendChild(text);
+    card.appendChild(main);
+    if (typeof summary.progress === "number") {
+        const ring = el("div", { className: "hub-card-ring" });
+        ring.style.setProperty("--ring-pct", String(Math.min(100, Math.max(0, summary.progress * 100))));
+        ring.style.setProperty("--ring-color", window.AlejoIcons ? window.AlejoIcons.iconColor(tool.input) : "");
+        card.appendChild(ring);
+    }
+    card.onclick = () => selectTool(tool);
+    return card;
+}
+
+function buildCompactCard(tool) {
+    const card = el("button", { className: "hub-card", type: "button" });
+    card.appendChild(badgeEl(tool, "compact"));
+    card.appendChild(el("div", { className: "hub-card-title", textContent: tool.name }));
+    card.onclick = () => selectTool(tool);
+    return card;
+}
+
+function renderHub() {
+    hubBento.innerHTML = "";
+    const list = visibleTools();
+    if (!list.length) {
+        hubBento.appendChild(el("p", { className: "hub-empty", textContent: "Sin herramientas todavía" }));
+        return;
+    }
+    const persistent = list.filter(t => t.persistent);
+    const rest = list.filter(t => !t.persistent);
+
+    if (persistent.length) {
+        hubBento.appendChild(el("div", { className: "hub-section-lbl", textContent: "Favoritos" }));
+        const wideGrid = el("div", { className: "hub-bento-grid" });
+        persistent.forEach(t => wideGrid.appendChild(buildWideCard(t)));
+        hubBento.appendChild(wideGrid);
+    }
+    if (rest.length) {
+        hubBento.appendChild(el("div", { className: "hub-section-lbl", textContent: persistent.length ? "Todas las herramientas" : "Herramientas" }));
+        const grid = el("div", { className: "hub-bento-grid" });
+        rest.forEach(t => grid.appendChild(buildCompactCard(t)));
+        hubBento.appendChild(grid);
+    }
+}
+
+// Solo re-pinta las 2 tarjetas anchas (estado en vivo) -- evita rehacer
+// todo el grid (y perder el foco del buscador si estuviera abierto) cada
+// pocos segundos. Mismo criterio de "chequear visibilidad antes de
+// trabajar" que ya se aplicó a los timers de Reloj/SyncManager.
+function refreshHubWidgets() {
+    if (hubView.classList.contains("hidden") || !hubSearchResults.classList.contains("hidden")) return;
+    renderHub();
+}
+setInterval(refreshHubWidgets, 4000);
+
+function renderCategoryList(pillarKey) {
+    const info = PILLAR_INFO[pillarKey];
+    categoryTitleEl.innerHTML = "";
+    const icon = el("div", { className: "ct-icon" });
+    icon.style.background = `var(--pillar-${pillarKey})`;
+    if (window.AlejoIcons) icon.appendChild(document.createRange().createContextualFragment(window.AlejoIcons.glyph(info.glyph, 18)));
+    const list = pillarTools(pillarKey);
+    const textWrap = el("div", {});
+    textWrap.append(
+        el("div", { className: "ct-text-name", textContent: info.label }),
+        el("div", { className: "ct-text-count", textContent: `${list.length} herramienta${list.length === 1 ? "" : "s"}` })
+    );
+    categoryTitleEl.append(icon, textWrap);
+    renderRowList(categoryListEl, list, "Sin herramientas en esta categoría.");
+}
+
+function renderSearchResults(query) {
+    const q = normalize(query);
+    const list = visibleTools().filter(t => normalize(t.name).includes(q) || normalize(t.description).includes(q));
+    renderRowList(hubSearchResults, list, "Sin resultados.");
+}
+
+function initHub() {
+    hubSearchIcon.appendChild(document.createRange().createContextualFragment(window.AlejoIcons ? window.AlejoIcons.glyph("search", 18) : ""));
+    pillarTabs.forEach(tab => {
+        const pillar = tab.dataset.pillar;
+        const info = PILLAR_INFO[pillar];
+        tab.querySelector(".pt-ico").appendChild(document.createRange().createContextualFragment(window.AlejoIcons ? window.AlejoIcons.glyph(info.glyph, 22) : ""));
+        tab.onclick = () => (pillar === "hub" ? showHub() : showCategory(pillar));
+    });
+    hubSearchInput.addEventListener("input", () => {
+        const q = hubSearchInput.value.trim();
+        if (!q) {
+            hubBento.classList.remove("hidden");
+            hubSearchResults.classList.add("hidden");
+            return;
         }
-        const text = el("div", { className: "tool-list-item-text" });
-        text.append(
-            el("div", { className: "tool-list-item-name", textContent: tool.name }),
-            el("div", { className: "tool-list-item-desc", textContent: tool.description || "" })
-        );
-        item.appendChild(text);
-        const chevron = el("span", { className: "tool-list-item-chevron" });
-        if (window.AlejoIcons) chevron.appendChild(document.createRange().createContextualFragment(window.AlejoIcons.glyph("chevronRight", 20)));
-        item.appendChild(chevron);
-        item.onclick = () => selectTool(tool);
-        toolListEl.appendChild(item);
+        hubBento.classList.add("hidden");
+        hubSearchResults.classList.remove("hidden");
+        renderSearchResults(q);
     });
 }
 
@@ -362,7 +559,7 @@ function renderToolList() {
 // usuario): oculta/muestra la app-bar propia de la app entera mientras una
 // herramienta muestra su propio contenido a pantalla completa con su
 // propia barra flotante encima (que aparece/desaparece con un toque, ver
-// LectorDocs/ui.js). showList()/showToolView() la vuelven a mostrar
+// LectorDocs/ui.js). showHub()/showCategory()/showToolView() la vuelven a mostrar
 // siempre como red de seguridad -- así nunca queda escondida "para
 // siempre" aunque una herramienta se salga de una vista fullscreen por un
 // camino que no haya limpiado su propio estado.
@@ -370,10 +567,14 @@ function setChromeHidden(hidden) {
     appBar.classList.toggle("app-bar--hidden", hidden);
 }
 
-// ── Navegación entre lista y herramienta ────────────────
-function showList() {
+// ── Navegación: Hub / categoría de pilar / herramienta ──
+function updateTabActive() {
+    const active = currentBase.view === "hub" ? "hub" : currentBase.pillar;
+    pillarTabs.forEach(tab => tab.classList.toggle("is-active", tab.dataset.pillar === active));
+}
+
+function showBaseChrome() {
     setChromeHidden(false);
-    toolListEl.classList.remove("hidden");
     toolView.classList.add("hidden");
     appBarBack.classList.add("hidden");
     appBarSettings.classList.remove("hidden");
@@ -382,11 +583,40 @@ function showList() {
     appBarTitle.textContent = "Alejo Tools";
     appBarDesc.textContent = "";
     styleOverride.textContent = "";
+    pillarTabbar.classList.remove("hidden");
+}
+
+function showHub() {
+    currentBase = { view: "hub", pillar: null };
+    showBaseChrome();
+    hubView.classList.remove("hidden");
+    categoryView.classList.add("hidden");
+    hubSearchInput.value = "";
+    hubBento.classList.remove("hidden");
+    hubSearchResults.classList.add("hidden");
+    renderHub();
+    updateTabActive();
+}
+
+// NUEVO (navegación por pilares, ≤2 toques): tocar un tab de la barra
+// inferior filtra a las herramientas de ESE pilar -- es navegación
+// lateral (como cambiar de tab), no "profundidad", así que no empuja al
+// backStack (ver pushBack más arriba). Solo entrar a una herramienta
+// desde acá sí empuja.
+function showCategory(pillarKey) {
+    currentBase = { view: "category", pillar: pillarKey };
+    showBaseChrome();
+    hubView.classList.add("hidden");
+    categoryView.classList.remove("hidden");
+    renderCategoryList(pillarKey);
+    updateTabActive();
 }
 
 function showToolView() {
     setChromeHidden(false);
-    toolListEl.classList.add("hidden");
+    hubView.classList.add("hidden");
+    categoryView.classList.add("hidden");
+    pillarTabbar.classList.add("hidden");
     toolView.classList.remove("hidden");
     appBarBack.classList.remove("hidden");
     appBarSettings.classList.add("hidden");
@@ -405,16 +635,20 @@ async function deactivateCurrentTool() {
     }
 }
 
-async function goBackToList() {
+// Vuelve a la pantalla "base" desde la que se entró a la herramienta --
+// el Hub, o la categoría de pilar si se entró desde ahí (currentBase no
+// cambia mientras una herramienta está abierta, ver showHub/showCategory).
+async function goBackToBase() {
     await deactivateCurrentTool();
     activeTool = null;
     isRunning = false;
-    showList();
+    if (currentBase.view === "category" && currentBase.pillar) showCategory(currentBase.pillar);
+    else showHub();
 }
 // NUEVO: la flecha en pantalla ya no llama a la lógica de volver
 // directo -- pide history.back(), que dispara popstate igual que el
 // botón físico de Android, y es popBack() quien de verdad ejecuta
-// goBackToList() (ver la pila de handlers más arriba). Un solo camino
+// goBackToBase() (ver la pila de handlers más arriba). Un solo camino
 // para ambos disparadores.
 appBarBack.onclick = () => history.back();
 
@@ -426,15 +660,15 @@ appBarSettings.onclick = () => {
 async function selectTool(tool) {
     if (activeTool?.id === tool.id) return;
     const mySeq = ++navSeq;
-    const cameFromList = !activeTool;
+    const cameFromBase = !activeTool;
     await deactivateCurrentTool();
     if (mySeq !== navSeq) return;
 
     activeTool = tool; isRunning = false;
     showToolView();
-    // Un nivel más adentro que la lista -- si el usuario (o el botón
-    // físico) aprieta "atrás" ahora, tiene que volver a la lista.
-    if (cameFromList) pushBack(goBackToList);
+    // Un nivel más adentro que el Hub/categoría -- si el usuario (o el
+    // botón físico) aprieta "atrás" ahora, tiene que volver a la base.
+    if (cameFromBase) pushBack(goBackToBase);
 
     appBarIcon.innerHTML = window.AlejoIcons ? window.AlejoIcons.toolBadge(tool.input, 32) : "";
     appBarTitle.textContent = tool.name;

@@ -13,21 +13,40 @@
 // lectura (ver LectorDocs/icons.js), esos sí son SVGs curados a mano
 // pero con más detalle porque van sueltos (sin badge de color atrás).
 
-const TOOL_ICON_COLORS = {
-    syncmanager:      "#3b82f6", // azul
-    descargarmusica:  "#ec4899", // rosa
-    reloj:            "#f59e0b", // ámbar
-    ideasrapidas:     "#eab308", // amarillo
-    gastos:           "#22c55e", // verde
-    paletacolores:    "#a855f7", // violeta
-    creadortexturas:  "#f97316", // naranja
-    scene:            "#6366f1", // índigo
-    lectordocs:       "#0ea5e9", // celeste
-    settings:         "#64748b", // gris pizarra
+// NUEVO (tema por pilares, propuesta de diseño aprobada): antes cada
+// herramienta tenía un color suelto sin relación entre sí -- ahora el
+// color codifica a qué PILAR de navegación pertenece (Conectividad,
+// Productividad, Suite Creativa) para que el usuario aprenda el mapa
+// mental una sola vez y valga para las nueve herramientas. TOOL_PILLAR es
+// la única fuente de verdad de esa agrupación (no vive en tool.json ni en
+// Rust a propósito -- es puramente de presentación/navegación).
+const TOOL_PILLAR = {
+    syncmanager:      "connect",
+    descargarmusica:  "connect",
+    lectordocs:       "connect",
+    reloj:            "product",
+    ideasrapidas:     "product",
+    gastos:           "product",
+    paletacolores:    "create",
+    creadortexturas:  "create",
+    scene:            "create2", // Generador de Escenas -- generativo, no parte de una foto
+    settings:         null,      // no aparece en el Hub ni en los pilares
+};
+
+// Un solo hex por pilar alcanza para los badges (relleno sólido + ícono
+// blanco encima, ver toolBadge() más abajo) -- el contraste ahí no
+// depende del tema claro/oscuro de la app. Mismos valores que la
+// propuesta de diseño aprobada.
+const PILLAR_BADGE_COLOR = {
+    connect:  "#22B8D6",
+    product:  "#2AA876",
+    create:   "#E2963A",
+    create2:  "#8C6FE6",
 };
 
 function iconColor(toolInput) {
-    return TOOL_ICON_COLORS[toolInput] || "#64748b";
+    const pillar = TOOL_PILLAR[toolInput];
+    return PILLAR_BADGE_COLOR[pillar] || "#64748b";
 }
 
 // Paths a trazo simple, viewBox 0 0 24 24. Todos en currentColor (no
@@ -103,6 +122,11 @@ const GLYPHS = {
     sparkle: `<path d="M12 2.5c.6 4 3 6.9 7.5 7.5-4.5.6-6.9 3.5-7.5 7.5-.6-4-3-6.9-7.5-7.5C9 9.4 11.4 6.5 12 2.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/>`,
     arrowUp: `<path d="M12 19V6M6 11l6-6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
     arrowDown: `<path d="M12 5v13M6 13l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
+    // NUEVO (Hub/navegación por pilares): lupa del buscador universal y
+    // casa de la pestaña "Favoritos" -- mismo estilo de trazo que el
+    // resto del set.
+    search: `<circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.9" fill="none"/><path d="M15.3 15.3 20 20" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>`,
+    home: `<path d="M4 11.2 12 4l8 7.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M6.3 10v9.3h5v-5.3h1.4v5.3h5V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
 };
 
 /** SVG completo (sin badge) de un glifo -- currentColor, para usar suelto
@@ -134,4 +158,4 @@ function toolBadge(toolInput, size = 40) {
     return `<span class="tool-badge" style="width:${size}px;height:${size}px;background:${color}">${glyph(g, iconSize)}</span>`;
 }
 
-window.AlejoIcons = { glyph, toolBadge, iconColor, GLYPHS };
+window.AlejoIcons = { glyph, toolBadge, iconColor, GLYPHS, TOOL_PILLAR, PILLAR_BADGE_COLOR };
