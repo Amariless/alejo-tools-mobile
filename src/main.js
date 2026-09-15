@@ -264,6 +264,20 @@ registerRenderer("text", {
 
 // ════════════════════════════════════════════════════════
 //  CARGA DINÁMICA DE ui.js — idéntico al mecanismo de escritorio.
+//
+//  IMPORTANTE (bug real, v0.1.30): el `new Function(...)` de acá abajo
+//  ejecuta el código de cada tool.json/ui.js embebido, traído como texto
+//  plano vía get_tool_ui() -- eso es exactamente lo que CSP's script-src
+//  bloquea sin 'unsafe-eval'. Cuando se endureció la CSP en la auditoría
+//  de seguridad, se sacó 'unsafe-eval' sin darse cuenta de esta
+//  dependencia -- el resultado fue que TODAS las herramientas caían en
+//  silencio al renderer genérico "Entrada" (loadToolUi() atrapa el
+//  error y solo lo loguea a consola, nunca se ve en pantalla). Si algún
+//  día se saca 'unsafe-eval' de tauri.conf.json de nuevo, este mecanismo
+//  entero deja de funcionar -- la alternativa (servir cada ui.js como
+//  <script src> real en vez de string+Function) es un cambio de
+//  arquitectura más grande, no algo para hacer sin querer en un ajuste
+//  de CSP.
 // ════════════════════════════════════════════════════════
 const _loadedUiScripts = new Set();
 
