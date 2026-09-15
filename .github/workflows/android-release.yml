@@ -77,7 +77,7 @@ jobs:
         #    GitHub cambia la versión empaquetada.
         run: |
           ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          SDKMANAGER=$(find "$ROOT/cmdline-tools" -maxdepth 2 -type f -name sdkmanager 2>/dev/null | sort | tail -1)
+          SDKMANAGER=$(find "$ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort | tail -1)
           test -n "$SDKMANAGER" || { echo "No se encontró sdkmanager bajo $ROOT/cmdline-tools"; exit 1; }
           echo "Usando sdkmanager: $SDKMANAGER"
           yes | "$SDKMANAGER" --licenses > /dev/null || true
