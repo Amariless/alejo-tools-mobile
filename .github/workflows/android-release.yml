@@ -107,10 +107,18 @@ jobs:
 
       - name: Ubicar el APK generado
         id: apk
+        # Se copia a un nombre fijo y prolijo (alejo-tools.apk) en vez de
+        # publicar "app-universal-debug.apk" tal cual lo nombra Tauri --
+        # ese nombre no cambia entre releases, así que a simple vista en
+        # GitHub parece "el mismo archivo de siempre" aunque el contenido
+        # sea otro (update.rs solo busca un asset que termine en ".apk",
+        # no un nombre exacto -- renombrar acá no rompe el auto-update).
         run: |
           f=$(find src-tauri/gen/android/app/build/outputs/apk -iname "*.apk" | head -1)
           test -n "$f" || { echo "No se generó ningún .apk"; exit 1; }
-          echo "path=$f" >> "$GITHUB_OUTPUT"
+          out="$RUNNER_TEMP/alejo-tools.apk"
+          cp "$f" "$out"
+          echo "path=$out" >> "$GITHUB_OUTPUT"
 
       - name: Publicar release
         uses: softprops/action-gh-release@v2
