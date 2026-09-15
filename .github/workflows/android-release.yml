@@ -62,15 +62,24 @@ jobs:
             ~/.gradle/wrapper
           key: gradle-${{ runner.os }}-${{ hashFiles('src-tauri/gen/android/**/*.gradle*') }}
 
+      - name: Configurar Android SDK
+        # NUEVO (corrida real del 15/09: el runner de ubuntu-latest NO tenía
+        # "sdkmanager" en el PATH -- "command not found", exit 127 --
+        # a diferencia de lo asumido antes. Esta action deja el SDK +
+        # cmdline-tools instalados y ANDROID_HOME seteado de forma
+        # confiable, sin depender de qué traiga la imagen del runner.
+        uses: android-actions/setup-android@v3
+
       - name: Instalar NDK
-        # El runner de Ubuntu ya trae Android SDK (ANDROID_HOME seteado, y
-        # cmdline-tools/latest/bin en el PATH) pero no siempre el NDK -- se
-        # instala una versión fija en vez de confiar en lo que venga
-        # preinstalado, para que el build no cambie de comportamiento sin
-        # aviso si GitHub actualiza la imagen del runner.
+        # Se instala una versión fija (no "lo que venga preinstalado") para
+        # que el build no cambie de comportamiento sin aviso si cambia la
+        # imagen del runner. Ruta explícita al binario en vez de confiar en
+        # el PATH -- mismo motivo que arriba.
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager --install "ndk;${{ env.NDK_VERSION }}"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER" || { echo "No se encontró sdkmanager en $SDKMANAGER"; exit 1; }
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install "ndk;${{ env.NDK_VERSION }}"
           echo "NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> "$GITHUB_ENV"
 
       - name: Instalar dependencias (@tauri-apps/cli)
