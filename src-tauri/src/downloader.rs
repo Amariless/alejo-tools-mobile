@@ -17,12 +17,21 @@
 //
 // A propósito NO se portó de escritorio para esta primera versión mobile
 // (queda para más adelante si hace falta): soporte de playlists completas
-// (acá solo se descarga una canción por vez), la búsqueda multi-fuente
-// find_best_candidate (YouTube+SoundCloud+Bandcamp sondeando bitrate real
-// para elegir la mejor fuente -- acá se descarga directo de la URL que el
-// usuario pegó), el autocompletado dl_search_suggestions, y el redescargar-
-// con-otra-fuente de Music Metadata Updater (que ni siquiera existe en
-// mobile todavía).
+// (acá solo se descarga una canción por vez), el redescargar-con-otra-
+// fuente de Music Metadata Updater (que ni siquiera existe en mobile
+// todavía).
+//
+// NUEVO (pedido del usuario -- búsqueda por nombre): sí se agregó una
+// versión simplificada de la búsqueda multi-fuente de escritorio
+// (find_best_candidate). A diferencia de esa, acá NO se sondea cada
+// candidato por separado pidiendo su info completa uno por uno (son
+// llamadas JNI reales a un proceso yt-dlp embebido, bastante más caras que
+// en escritorio) -- yt-dlp resuelve "ytsearchN:"/"scsearchN:" como si
+// fueran URLs de playlist y con --dump-json (sin --flat-playlist) cada
+// resultado ya sale con título/duración/miniatura reales en un solo viaje.
+// Bandcamp queda afuera de la búsqueda por texto (yt-dlp no tiene
+// extractor de búsqueda para Bandcamp) -- se sigue soportando pegando su
+// URL directa, igual que antes.
 
 use std::path::PathBuf;
 
@@ -297,6 +306,55 @@ async fn jni_start_fetch_info(app: &AppHandle, url: &str) -> Result<String, Stri
 }
 
 #[cfg(target_os = "android")]
+async fn jni_start_search(app: &AppHandle, source: &str, query: &str) -> Result<String, String> {
+    use jni::objects::JValue;
+    use tauri::Manager;
+
+    let window = app.get_webview_window("main").ok_or("No se encontró la ventana principal")?;
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
+    let source = source.to_string();
+    let query = query.to_string();
+
+    window
+        .with_webview(move |webview| {
+            let handle = webview.jni_handle();
+            handle.exec(move |env, activity, _webview| {
+                let result = (|| -> Result<String, String> {
+                    let class = wry::prelude::find_class(env, activity, "com.alejo.toolsmobile.YtDlpBridge".to_string())
+                        .map_err(|e| format!("No se encontró YtDlpBridge: {e}"))?;
+                    let source_j = env.new_string(&source).map_err(|e| e.to_string())?;
+                    let query_j = env.new_string(&query).map_err(|e| e.to_string())?;
+                    let job_id_obj = env
+                        .call_static_method(
+                            class,
+                            "startSearch",
+                            "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+                            &[JValue::Object(activity), JValue::Object(&source_j), JValue::Object(&query_j)],
+                        )
+                        .and_then(|v| v.l())
+                        .map_err(|e| format!("No se pudo iniciar la búsqueda: {e}"))?;
+                    if job_id_obj.is_null() {
+                        return Err("startSearch devolvió null".to_string());
+                    }
+                    let job_id: String = env
+                        .get_string(&job_id_obj.into())
+                        .map_err(|e| e.to_string())?
+                        .into();
+                    Ok(job_id)
+                })();
+                let _ = tx.send(result);
+            });
+        })
+        .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
+
+    match tokio::time::timeout(std::time::Duration::from_secs(20), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("No se obtuvo respuesta".to_string()),
+        Err(_) => Err("La búsqueda tardó demasiado en iniciar".to_string()),
+    }
+}
+
+#[cfg(target_os = "android")]
 async fn jni_start_download(app: &AppHandle, url: &str, out_path: &str, quality: &str) -> Result<String, String> {
     use jni::objects::JValue;
     use tauri::Manager;
@@ -404,6 +462,10 @@ async fn jni_start_fetch_info(_app: &AppHandle, _url: &str) -> Result<String, St
     Err("Descargar Música solo está disponible en Android".to_string())
 }
 #[cfg(not(target_os = "android"))]
+async fn jni_start_search(_app: &AppHandle, _source: &str, _query: &str) -> Result<String, String> {
+    Err("Descargar Música solo está disponible en Android".to_string())
+}
+#[cfg(not(target_os = "android"))]
 async fn jni_start_download(_app: &AppHandle, _url: &str, _out_path: &str, _quality: &str) -> Result<String, String> {
     Err("Descargar Música solo está disponible en Android".to_string())
 }
@@ -416,13 +478,14 @@ async fn jni_poll(_app: &AppHandle, _job_id: &str) -> Result<serde_json::Value, 
 /// comentario de YtDlpBridge.kt sobre por qué es polling y no un callback
 /// directo. 250ms es suficientemente seguido para que la barra de progreso
 /// se sienta fluida sin saturar el puente JNI con llamadas.
-async fn poll_until_done(app: &AppHandle, job_id: &str) -> Result<serde_json::Value, String> {
+async fn poll_until_done(app: &AppHandle, job_id: &str, timeout_secs: u64) -> Result<serde_json::Value, String> {
     // NUEVO (auditoría -- hallazgo MEDIO #4): sin límite, un job que se
     // cuelga del lado de YtDlpBridge.kt (yt-dlp trabado con una URL rara)
     // dejaba este sondeo corriendo cada 250ms indefinidamente, sin ningún
-    // feedback de error al usuario. 90s es de sobra para "buscar info" de
-    // un video/canción.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(90);
+    // feedback de error al usuario. timeout_secs lo elige cada llamador
+    // según cuánto puede tardar razonablemente ese job (ver dl_fetch_info
+    // vs dl_search, que resuelve varios candidatos de una).
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
     loop {
         let v = jni_poll(app, job_id).await?;
         if v.get("status").and_then(|s| s.as_str()) == Some("done") {
@@ -450,20 +513,11 @@ pub struct TrackInfo {
     pub track_url: String,
 }
 
-#[tauri::command]
-pub async fn dl_fetch_info(app: AppHandle, url: String) -> Result<TrackInfo, String> {
-    let url = url.trim().to_string();
-    if url.is_empty() {
-        return Err("Pegá un link primero.".to_string());
-    }
-    let job_id = jni_start_fetch_info(&app, &url).await?;
-    let result = poll_until_done(&app, &job_id).await?;
-
-    if result.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-        let err = result.get("error").and_then(|v| v.as_str()).unwrap_or("Error desconocido");
-        return Err(format!("No se pudo leer el link: {err}"));
-    }
-
+/// Arma un TrackInfo a partir de un JSON crudo de yt-dlp (title/uploader/
+/// duration/thumbnail/webpage_url) -- extraído a función propia porque
+/// dl_fetch_info (una URL pegada) y dl_search (varios candidatos de una
+/// búsqueda por texto) parsean exactamente la misma forma de dato.
+fn track_info_from_json(result: &serde_json::Value, fallback_url: &str) -> TrackInfo {
     let raw_title = result.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let uploader = result.get("uploader").and_then(|v| v.as_str()).unwrap_or("").to_string();
     // NUEVO (auditoría -- hallazgo MENOR #11): as_i64() devuelve None (y se
@@ -471,7 +525,7 @@ pub async fn dl_fetch_info(app: AppHandle, url: String) -> Result<TrackInfo, Str
     // float (ej. 213.0) en vez de entero -- as_f64() cubre ambos casos.
     let duration_secs = result.get("duration").and_then(|v| v.as_f64()).map(|f| f as i64).unwrap_or(0);
     let thumbnail = result.get("thumbnail").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
-    let webpage_url = result.get("webpage_url").and_then(|v| v.as_str()).unwrap_or(&url).to_string();
+    let webpage_url = result.get("webpage_url").and_then(|v| v.as_str()).unwrap_or(fallback_url).to_string();
 
     let mut artist_name = primary_artist(&uploader);
     artist_name = CHANNEL_SUFFIX.replace(&artist_name, "").trim().to_string();
@@ -490,14 +544,179 @@ pub async fn dl_fetch_info(app: AppHandle, url: String) -> Result<TrackInfo, Str
         }
     }
 
-    Ok(TrackInfo {
+    TrackInfo {
         platform,
         title,
         artist: artist_name,
         duration: fmt_dur(duration_secs),
         thumbnail_url: thumbnail,
         track_url: webpage_url,
-    })
+    }
+}
+
+#[tauri::command]
+pub async fn dl_fetch_info(app: AppHandle, url: String) -> Result<TrackInfo, String> {
+    let url = url.trim().to_string();
+    if url.is_empty() {
+        return Err("Pegá un link primero.".to_string());
+    }
+    let job_id = jni_start_fetch_info(&app, &url).await?;
+    let result = poll_until_done(&app, &job_id, 90).await?;
+
+    if result.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+        let err = result.get("error").and_then(|v| v.as_str()).unwrap_or("Error desconocido");
+        return Err(format!("No se pudo leer el link: {err}"));
+    }
+
+    Ok(track_info_from_json(&result, &url))
+}
+
+/// Búsqueda por nombre/artista -- ver el comentario grande al principio del
+/// archivo sobre por qué no se sondea cada candidato por separado. YouTube y
+/// SoundCloud se buscan en paralelo (tokio::join!, son 2 llamadas JNI
+/// independientes) y se combinan: dentro de cada plataforma se ordena por
+/// bitrate reportado (abr/tbr) cuando yt-dlp lo trae, dejando el orden de
+/// relevancia original de yt-dlp para el resto -- no hay suficiente dato
+/// confiable en un resultado de búsqueda (a diferencia de una URL resuelta a
+/// mano) como para replicar el sondeo de bitrate real de find_best_candidate
+/// de escritorio sin agregar varios segundos más de espera por candidato.
+#[tauri::command]
+pub async fn dl_search(app: AppHandle, query: String) -> Result<Vec<TrackInfo>, String> {
+    let query = query.trim().to_string();
+    if query.is_empty() {
+        return Err("Escribí algo para buscar.".to_string());
+    }
+
+    async fn search_one(app: &AppHandle, source: &str, query: &str) -> Result<Vec<serde_json::Value>, String> {
+        let job_id = jni_start_search(app, source, query).await?;
+        let result = poll_until_done(app, &job_id, 90).await?;
+        if result.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+            let err = result.get("error").and_then(|v| v.as_str()).unwrap_or("Error desconocido");
+            return Err(err.to_string());
+        }
+        Ok(result.get("results").and_then(|v| v.as_array()).cloned().unwrap_or_default())
+    }
+
+    let (yt_res, sc_res) = tokio::join!(
+        search_one(&app, "youtube", &query),
+        search_one(&app, "soundcloud", &query),
+    );
+
+    let mut errors = Vec::new();
+    let yt = yt_res.unwrap_or_else(|e| { errors.push(e); Vec::new() });
+    let sc = sc_res.unwrap_or_else(|e| { errors.push(e); Vec::new() });
+
+    if yt.is_empty() && sc.is_empty() {
+        return Err(errors.into_iter().next().unwrap_or_else(|| "No se encontraron resultados.".to_string()));
+    }
+
+    fn bitrate_of(v: &serde_json::Value) -> f64 {
+        v.get("abr").and_then(|x| x.as_f64())
+            .or_else(|| v.get("tbr").and_then(|x| x.as_f64()))
+            .unwrap_or(0.0)
+    }
+    let mut yt = yt;
+    yt.sort_by(|a, b| bitrate_of(b).partial_cmp(&bitrate_of(a)).unwrap_or(std::cmp::Ordering::Equal));
+    let mut sc = sc;
+    sc.sort_by(|a, b| bitrate_of(b).partial_cmp(&bitrate_of(a)).unwrap_or(std::cmp::Ordering::Equal));
+
+    Ok(yt.iter().chain(sc.iter()).map(|v| track_info_from_json(v, "")).collect())
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+//  GESTOR DE DESCARGAS -- reproducir/renombrar/eliminar mp3 ya bajados.
+//  Mismo patrón que pdf_list_folder/pdf_delete_file/pdf_rename_file
+//  (pdf.rs), pero con std::fs directo en vez de un puente JNI: la carpeta
+//  de Música es del propio storage compartido de la app (misma que ya
+//  escribe dl_download), no hace falta pasar por el AssetManager/SAF.
+// ══════════════════════════════════════════════════════════════════════════
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadedFile {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub modified_at: i64,
+}
+
+#[tauri::command]
+pub async fn dl_list_downloads(app: AppHandle) -> Result<Vec<DownloadedFile>, String> {
+    if !crate::storage::has_all_files_access(&app).await? {
+        return Err("Falta el permiso \"Acceso a todos los archivos\" -- pedilo desde Sincronización o en Ajustes del sistema.".to_string());
+    }
+    let dir = music_dir(&app);
+    let mut entries = match tokio::fs::read_dir(&dir).await {
+        Ok(e) => e,
+        // La carpeta todavía no existe (nunca se descargó nada) -- lista
+        // vacía, no es un error.
+        Err(_) => return Ok(Vec::new()),
+    };
+    let mut out = Vec::new();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if !path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("mp3")) {
+            continue;
+        }
+        let Ok(meta) = entry.metadata().await else { continue };
+        let modified_at = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        out.push(DownloadedFile {
+            name: entry.file_name().to_string_lossy().to_string(),
+            path: path.to_string_lossy().to_string(),
+            size_bytes: meta.len(),
+            modified_at,
+        });
+    }
+    out.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
+    Ok(out)
+}
+
+/// Valida que `path` resuelva DENTRO de la carpeta de Música configurada --
+/// mismo criterio defensivo que camera_read_as_data_url en camera.rs: un
+/// `path` arbitrario llegando por invoke() no debería poder borrar/renombrar
+/// cualquier archivo del teléfono, aunque hoy solo lo llame el propio ui.js
+/// de esta herramienta.
+fn ensure_in_music_dir(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
+    let dir = music_dir(app);
+    let canon_dir = std::fs::canonicalize(&dir).unwrap_or(dir);
+    let p = PathBuf::from(path);
+    let canon_p = std::fs::canonicalize(&p).map_err(|_| "Archivo no encontrado.".to_string())?;
+    if !canon_p.starts_with(&canon_dir) {
+        return Err("Ruta inválida.".to_string());
+    }
+    Ok(p)
+}
+
+#[tauri::command]
+pub async fn dl_delete_file(app: AppHandle, path: String) -> Result<(), String> {
+    if !crate::storage::has_all_files_access(&app).await? {
+        return Err("Falta el permiso \"Acceso a todos los archivos\".".to_string());
+    }
+    let p = ensure_in_music_dir(&app, &path)?;
+    tokio::fs::remove_file(&p).await.map_err(|e| format!("No se pudo borrar: {e}"))
+}
+
+#[tauri::command]
+pub async fn dl_rename_file(app: AppHandle, path: String, new_name: String) -> Result<String, String> {
+    if !crate::storage::has_all_files_access(&app).await? {
+        return Err("Falta el permiso \"Acceso a todos los archivos\".".to_string());
+    }
+    let p = ensure_in_music_dir(&app, &path)?;
+    let new_name = new_name.trim();
+    if new_name.is_empty() {
+        return Err("El nombre no puede estar vacío.".to_string());
+    }
+    let dir = p.parent().ok_or("Ruta inválida.")?.to_path_buf();
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("mp3").to_string();
+    let base = sanitize_filename(new_name.trim_end_matches(&format!(".{ext}")));
+    let new_path = dir.join(format!("{base}.{ext}"));
+    tokio::fs::rename(&p, &new_path).await.map_err(|e| format!("No se pudo renombrar: {e}"))?;
+    Ok(new_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]

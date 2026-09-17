@@ -121,6 +121,63 @@ object YtDlpBridge {
         return jobId
     }
 
+    /// Arranca una búsqueda por texto en una plataforma ("youtube" o
+    /// "soundcloud"). yt-dlp resuelve el prefijo "ytsearchN:"/"scsearchN:"
+    /// como si la URL fuera una playlist ("buscar N resultados") -- con
+    /// --dump-json (SIN --flat-playlist a propósito) cada resultado sale
+    /// como una línea de stdout con la MISMA forma de JSON que ya devuelve
+    /// getInfo() para un solo video/canción (title/uploader/duration/
+    /// thumbnail/webpage_url), así que Rust reusa el mismo parseo que ya
+    /// tenía dl_fetch_info -- ver downloader.rs, track_info_from_json. NO
+    /// se usa --flat-playlist porque esa variante solo trae el id de cada
+    /// resultado (más rápido, pero sin duración/miniatura reales, que es
+    /// justo lo que necesita la tarjeta de resultados). A diferencia de
+    /// startFetchInfo, acá se arma el JSON de salida a mano con org.json en
+    /// vez de por Jackson/VideoInfo: cada línea de stdout YA es un JSON
+    /// válido de yt-dlp (con esas claves), así que alcanza con validarla y
+    /// meterla en un array.
+    @JvmStatic
+    fun startSearch(context: Context, source: String, query: String): String {
+        val jobId = UUID.randomUUID().toString()
+        val appContext = context.applicationContext
+        val prefix = if (source == "soundcloud") "scsearch5:" else "ytsearch5:"
+        Thread {
+            var result = errorJson(IllegalStateException("Fallo desconocido al buscar"))
+            try {
+                result = try {
+                    ensureInit(appContext)
+                    val request = YoutubeDLRequest(prefix + query)
+                    request.addOption("--dump-json")
+                    // --ignore-errors: sin esto, si UNO solo de los 5
+                    // resultados falla al extraer (privado, con restricción
+                    // de edad, etc.) yt-dlp termina con exit code != 0 y
+                    // YoutubeDL.execute() tira una excepción DESCARTANDO todo
+                    // el stdout ya generado (ver YoutubeDL.kt: ignoreErrors()
+                    // exige esta opción para no propagar ese error) -- con
+                    // ella, sigue con el resto y devuelve exit 0 igual.
+                    request.addOption("--ignore-errors")
+                    val response = YoutubeDL.getInstance().execute(request, jobId, null)
+                    val entries = org.json.JSONArray()
+                    response.out.lineSequence().forEach { line ->
+                        val trimmed = line.trim()
+                        if (trimmed.isNotEmpty()) {
+                            try { entries.put(JSONObject(trimmed)) } catch (e: Exception) { /* línea no-JSON (ej. un warning suelto) -- se ignora */ }
+                        }
+                    }
+                    val j = JSONObject()
+                    j.put("ok", true)
+                    j.put("results", entries)
+                    j.toString()
+                } catch (e: Throwable) {
+                    errorJson(e)
+                }
+            } finally {
+                jobs[jobId] = result
+            }
+        }.start()
+        return jobId
+    }
+
     /// Arranca la descarga+extracción de audio (mp3) de una URL hacia
     /// outputPath (ruta absoluta completa, SIN plantilla -- Rust ya arma el
     /// nombre de archivo final a partir del título/artista limpios, ver

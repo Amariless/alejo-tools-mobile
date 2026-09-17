@@ -191,9 +191,13 @@ pub fn run() {
             storage::sync_request_storage_permission,
             // Descargar Música (yt-dlp vía youtubedl-android)
             downloader::dl_fetch_info,
+            downloader::dl_search,
             downloader::dl_download,
             downloader::dl_get_config,
             downloader::dl_set_config,
+            downloader::dl_list_downloads,
+            downloader::dl_delete_file,
+            downloader::dl_rename_file,
             // Selector de carpeta nativo (Settings, y cualquier
             // herramienta que necesite elegir una carpeta)
             folder_picker::pick_folder_start,

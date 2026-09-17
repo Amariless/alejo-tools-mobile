@@ -11,6 +11,148 @@
 .dl-url-row input { width: 100%; }
 .dl-search-btn { width: 100%; }
 
+/* ── Pestañas (Buscar / Descargas) -- mismo patrón que .ld-tabs de
+   LectorDocs, sin padding propio porque acá ya viven dentro de .dl-root
+   (que arma el padding/gap de todos sus hijos). ── */
+.dl-tabs { display: flex; gap: 6px; }
+.dl-tab {
+  flex: 1;
+  padding: 9px 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  color: var(--text-muted);
+  font-size: .85rem;
+  font-weight: 600;
+}
+.dl-tab--active { background: var(--accent, #0ea5e9); border-color: transparent; color: white; }
+
+.dl-mode-swap {
+  background: transparent;
+  border: none;
+  color: var(--accent, #0ea5e9);
+  font-size: .82rem;
+  padding: 2px;
+  text-align: center;
+}
+
+.dl-empty {
+  margin: 24px 0;
+  font-size: .85rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ── Listas (resultados de búsqueda y descargas guardadas) -- mismo
+   patrón visual que .ld-list/.ld-item de LectorDocs. ── */
+.dl-list { display: flex; flex-direction: column; gap: 8px; }
+.dl-item-wrap { display: flex; flex-direction: column; gap: 6px; }
+.dl-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+}
+.dl-item-thumb {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.dl-item-thumb--img { object-fit: cover; }
+.dl-item-main { flex: 1; min-width: 0; }
+.dl-item-name {
+  font-size: .9rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dl-item-sub {
+  font-size: .74rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dl-item-dots {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 8px;
+  display: flex;
+}
+.dl-audio { width: 100%; height: 40px; }
+
+/* ── Hoja de acciones / diálogo de renombrar -- mismo patrón que
+   .ld-overlay/.ld-sheet/.ld-dialog de LectorDocs. ── */
+.dl-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 40;
+}
+.dl-sheet {
+  width: 100%;
+  max-width: 480px;
+  background: var(--surface);
+  border-radius: 16px 16px 0 0;
+  padding: 10px 14px calc(14px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dl-sheet-title {
+  font-size: .8rem;
+  color: var(--text-muted);
+  padding: 6px 4px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dl-sheet-btn {
+  width: 100%;
+  text-align: left;
+  padding: 13px 10px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border);
+  font-size: .94rem;
+  color: var(--text);
+}
+.dl-sheet-btn--danger { color: var(--error); }
+.dl-sheet-cancel { color: var(--text-muted); text-align: center; }
+
+.dl-dialog {
+  width: calc(100% - 40px);
+  max-width: 400px;
+  background: var(--surface);
+  border-radius: var(--radius-lg, 16px);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: auto;
+}
+.dl-dialog-title { font-weight: 700; }
+.dl-dialog-input { width: 100%; }
+.dl-dialog-actions { display: flex; gap: 8px; }
+.dl-dialog-actions button { flex: 1; }
+
 .dl-error {
   margin: 0;
   font-size: .85rem;
