@@ -127,6 +127,10 @@ const GLYPHS = {
     // resto del set.
     search: `<circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.9" fill="none"/><path d="M15.3 15.3 20 20" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>`,
     home: `<path d="M4 11.2 12 4l8 7.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M6.3 10v9.3h5v-5.3h1.4v5.3h5V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
+    // NUEVO (gestor de descargas de Descargar Música): ícono de estado
+    // play/pausa para la fila de un mp3 ya bajado.
+    play: `<path d="M7 4.5v15l13-7.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="currentColor"/>`,
+    pause: `<rect x="6.5" y="4.5" width="4" height="15" rx="1" fill="currentColor"/><rect x="13.5" y="4.5" width="4" height="15" rx="1" fill="currentColor"/>`,
 };
 
 /** SVG completo (sin badge) de un glifo -- currentColor, para usar suelto
