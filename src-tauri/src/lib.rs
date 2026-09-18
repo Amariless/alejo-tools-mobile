@@ -228,6 +228,8 @@ pub fn run() {
             expenses::expenses_set_currency,
             // Creador de Texturas
             textures::save_texture_png,
+            textures::textures_get_config,
+            textures::textures_set_config,
             collections::collections_list,
             collections::collections_create,
             collections::collections_rename,

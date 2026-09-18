@@ -77,8 +77,8 @@ fn write_all(app: &AppHandle, items: &[Collection]) -> Result<(), String> {
     std::fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
 }
 
-fn collection_dir(c: &Collection) -> PathBuf {
-    crate::textures::textures_dir().join(sanitize_folder_name(&c.name))
+fn collection_dir(app: &AppHandle, c: &Collection) -> PathBuf {
+    crate::textures::textures_dir(app).join(sanitize_folder_name(&c.name))
 }
 
 #[derive(Serialize)]
@@ -92,8 +92,8 @@ pub struct CollectionInfo {
     pub image_count: usize,
 }
 
-fn to_info(c: &Collection) -> CollectionInfo {
-    let dir = collection_dir(c);
+fn to_info(app: &AppHandle, c: &Collection) -> CollectionInfo {
+    let dir = collection_dir(app, c);
     let image_count = std::fs::read_dir(&dir)
         .map(|rd| rd.filter_map(|e| e.ok()).filter(|e| e.path().is_file()).count())
         .unwrap_or(0);
@@ -111,7 +111,7 @@ fn to_info(c: &Collection) -> CollectionInfo {
 pub fn collections_list(app: AppHandle) -> Result<Vec<CollectionInfo>, String> {
     let mut items = read_all(&app)?;
     items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-    Ok(items.iter().map(to_info).collect())
+    Ok(items.iter().map(|c| to_info(&app, c)).collect())
 }
 
 #[tauri::command]
@@ -135,11 +135,11 @@ pub fn collections_create(app: AppHandle, name: String, category: String) -> Res
     // Dos nombres distintos pueden sanear a la misma carpeta física (ej.
     // "a/b" y "a*b" sanean ambos a "ab") -- mismo chequeo que ya hace
     // collections_rename para el mismo caso.
-    if collection_dir(&c).exists() {
+    if collection_dir(&app, &c).exists() {
         return Err("Ya existe una carpeta con ese nombre en el storage.".to_string());
     }
-    std::fs::create_dir_all(collection_dir(&c)).map_err(|e| format!("No se pudo crear la carpeta: {e}"))?;
-    let info = to_info(&c);
+    std::fs::create_dir_all(collection_dir(&app, &c)).map_err(|e| format!("No se pudo crear la carpeta: {e}"))?;
+    let info = to_info(&app, &c);
     items.push(c);
     write_all(&app, &items)?;
     Ok(info)
@@ -160,11 +160,11 @@ pub fn collections_rename(app: AppHandle, id: String, new_name: String) -> Resul
         return Err("Ya existe una colección con ese nombre.".to_string());
     }
     let idx = items.iter().position(|c| c.id == id).ok_or("Colección no encontrada")?;
-    let old_dir = collection_dir(&items[idx]);
+    let old_dir = collection_dir(&app, &items[idx]);
     let mut updated = items[idx].clone();
     updated.name = new_name;
     updated.updated_at = now_millis();
-    let new_dir = collection_dir(&updated);
+    let new_dir = collection_dir(&app, &updated);
     if old_dir != new_dir {
         if new_dir.exists() {
             return Err("Ya existe una carpeta con ese nombre en el storage.".to_string());
@@ -192,7 +192,7 @@ pub fn collections_set_category(app: AppHandle, id: String, category: String) ->
 pub fn collections_delete(app: AppHandle, id: String) -> Result<(), String> {
     let mut items = read_all(&app)?;
     let idx = items.iter().position(|c| c.id == id).ok_or("Colección no encontrada")?;
-    let dir = collection_dir(&items[idx]);
+    let dir = collection_dir(&app, &items[idx]);
     if dir.exists() {
         std::fs::remove_dir_all(&dir).map_err(|e| format!("No se pudo borrar la carpeta: {e}"))?;
     }
@@ -212,7 +212,7 @@ pub struct CollectionImage {
 pub fn collections_list_images(app: AppHandle, id: String) -> Result<Vec<CollectionImage>, String> {
     let items = read_all(&app)?;
     let c = items.iter().find(|c| c.id == id).ok_or("Colección no encontrada")?;
-    let dir = collection_dir(c);
+    let dir = collection_dir(&app, c);
     let mut out = Vec::new();
     if let Ok(rd) = std::fs::read_dir(&dir) {
         for entry in rd.flatten() {
@@ -242,7 +242,7 @@ pub async fn collections_add_image(app: AppHandle, id: String, filename: String,
     }
     let mut items = read_all(&app)?;
     let idx = items.iter().position(|c| c.id == id).ok_or("Colección no encontrada")?;
-    let dir = collection_dir(&items[idx]);
+    let dir = collection_dir(&app, &items[idx]);
     tokio::fs::create_dir_all(&dir).await.map_err(|e| format!("No se pudo crear la carpeta: {e}"))?;
     let bytes = crate::textures::base64_decode(&data_base64)?;
     let safe_name = filename.replace(['/', '\\'], "_");
@@ -260,7 +260,7 @@ pub async fn collections_add_image(app: AppHandle, id: String, filename: String,
 pub fn collections_remove_image(app: AppHandle, id: String, filename: String) -> Result<(), String> {
     let items = read_all(&app)?;
     let c = items.iter().find(|c| c.id == id).ok_or("Colección no encontrada")?;
-    let dir = collection_dir(c);
+    let dir = collection_dir(&app, c);
     let safe_name = filename.replace(['/', '\\'], "_");
     if safe_name == ".." || safe_name == "." {
         return Err("Nombre de archivo inválido.".to_string());

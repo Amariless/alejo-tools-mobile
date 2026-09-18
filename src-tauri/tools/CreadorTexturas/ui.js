@@ -38,6 +38,20 @@
 //     sin haber tiling/AO real ni metallic: no hay información suficiente
 //     en una sola foto 2D para eso sin inventar datos (mismo criterio que
 //     ya regía roughness).
+// Estado a nivel de módulo (no local a render()) -- mismo motivo que
+// LectorDocs: onLeave() necesita poder leerlo para liberar el blob de la
+// foto en curso aunque el usuario salga con la flecha/botón físico de
+// "atrás" (antes esto era `const S` DENTRO de render(), invisible desde
+// onLeave() -- bug real encontrado en esta revisión: onLeave() tiraba
+// ReferenceError en silencio y nunca liberaba nada).
+let S = null;
+// Handler de "la pantalla volvió a estar visible" -- ver captureFromCamera
+// más abajo (bug real reportado: el botón queda en "Abriendo cámara..."
+// para siempre al volver de MacroCameraActivity). Se guarda acá (no local a
+// render()) para poder sacarlo en onLeave() y no acumular un listener de
+// document por cada vez que se entra a esta herramienta.
+let visibilityHandler = null;
+
 registerRenderer("creadortexturas", {
     render(tool, area) {
         const root = el("div", { className: "tx-root" });
@@ -63,16 +77,17 @@ registerRenderer("creadortexturas", {
             ["ao", "aoCanvas", "oclusion.png", "Oclusión / cavidad (estimada)"],
         ];
 
-        const S = {
+        S = {
             tab: "crear", // crear | colecciones
             view: "pick", // pick | crop | result
-            pendingImage: null, // { img, url }
-            cropBox: { x: 0.1, y: 0.1, w: 0.8, h: 0.8 },
+            original: null, // { img, url } -- foto SIN recortar, viva desde que se elige hasta que se descarta (ver discardOriginal)
+            recropping: false, // true mientras "crop" se reabrió desde "result" (Recortar de nuevo)
+            cropBox: { x: 0, y: 0, w: 1, h: 1 },
             width: 0, height: 0, heightArr: null,
             albedoCanvas: null, heightCanvas: null, normalCanvas: null, roughnessCanvas: null, aoCanvas: null,
             strength: 2.5,
             selected: { albedo: true, normal: false, height: false, roughness: false, ao: false },
-            busy: false, savedMsg: "", savedIsError: false,
+            busy: false, savedMsg: "", savedIsError: false, savedThisResult: false,
             capturing: false,
             saveSheetOpen: false,
             newCollectionDialog: null, // { name, category }
@@ -90,12 +105,34 @@ registerRenderer("creadortexturas", {
         function assetUrl(path) { return window.__TAURI__.core.convertFileSrc(path); }
 
         // ── Carga de imagen (cámara completa, galería, o recorte pendiente) ──
+        // NUEVO: ya no descarta la foto original al recortar (ver applyCrop)
+        // -- discardOriginal() es el único lugar que la libera de verdad,
+        // para poder ofrecer "Recortar de nuevo" desde el resultado sin
+        // perder calidad (recortar un recorte) ni tener que volver a pedir
+        // la foto.
+        function discardOriginal() {
+            if (S.original?.url?.startsWith("blob:")) URL.revokeObjectURL(S.original.url);
+            S.original = null;
+            S.recropping = false;
+            S.savedThisResult = false;
+        }
+
         function loadImageFromUrl(url) {
             const img = new Image();
             img.onload = () => {
-                S.pendingImage = { img, url };
-                S.cropBox = { x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
+                discardOriginal();
+                S.original = { img, url };
+                S.cropBox = { x: 0, y: 0, w: 1, h: 1 };
+                S.recropping = false;
                 S.view = "crop";
+                // NUEVO (pedido del usuario -- el botón de atrás/físico
+                // cerraba la app entera desde cualquier pestaña de esta
+                // herramienta): esta tool nunca llamaba a ctx.pushBack, así
+                // que "atrás" no tenía nada propio que deshacer acá adentro.
+                // Un solo handler (backFromCropOrResult) cubre crop, result
+                // Y el volver a recortar -- ver ese handler para el porqué
+                // alcanza con empujarlo una sola vez acá.
+                ctx.pushBack(backFromCropOrResult);
                 renderView();
             };
             img.onerror = () => alert("No se pudo cargar la imagen.");
@@ -121,18 +158,46 @@ registerRenderer("creadortexturas", {
             loadImageFromUrl(dataUrl);
         }
 
+        // NUEVO (bug real reportado -- "al darle a tomar foto y volver, el
+        // botón se queda atascado en 'Abriendo cámara...'"): mientras
+        // MacroCameraActivity está al frente, este WebView pasa a segundo
+        // plano y Chromium puede llegar a pausar/throttlear sus timers
+        // (setTimeout) -- el polling normal de ctx.captureFullCamera (cada
+        // 200ms) puede tardar en "despertarse" bastante más de lo esperado
+        // aunque el resultado ya esté listo del lado de Android. En vez de
+        // depender solo de que ese polling se recupere solo, se escucha
+        // "visibilitychange": apenas la página vuelve a estar visible (el
+        // usuario volvió de la cámara), se resuelve el estado al toque
+        // consultando camera_capture_poll directo -- mismo mecanismo que ya
+        // usa checkPendingCameraCapture() para recuperar una captura que
+        // sobrevivió a un reinicio de proceso.
+        function resolveCaptureResult(res) {
+            if (!S.capturing) return;
+            S.capturing = false;
+            if (res && res.path) loadCapturedPhoto(res.path);
+            else renderView();
+        }
+
+        visibilityHandler = () => {
+            if (document.visibilityState !== "visible" || !S?.capturing) return;
+            ctx.checkPendingCameraCapture().then(res => { if (res) resolveCaptureResult(res); });
+        };
+        document.addEventListener("visibilitychange", visibilityHandler);
+
         async function captureFromCamera() {
             if (S.capturing) return;
             S.capturing = true; renderView();
             const path = await ctx.captureFullCamera("texturas");
-            S.capturing = false;
-            if (!path) { renderView(); return; }
-            await loadCapturedPhoto(path);
+            resolveCaptureResult(path ? { path } : null);
         }
 
         // ── Recorte ──
+        // NUEVO: ya NO descarta S.original -- se mantiene vivo (ver
+        // discardOriginal/loadImageFromUrl) para poder volver a recortar
+        // desde el resultado sin perder calidad ni tener que sacar la foto
+        // de nuevo.
         function applyCrop(useFullPhoto) {
-            const img = S.pendingImage.img;
+            const img = S.original.img;
             const box = useFullPhoto ? { x: 0, y: 0, w: 1, h: 1 } : S.cropBox;
             const sx = Math.round(box.x * img.naturalWidth);
             const sy = Math.round(box.y * img.naturalHeight);
@@ -157,19 +222,40 @@ registerRenderer("creadortexturas", {
             }
             S.heightArr = heightArr;
 
-            if (S.pendingImage.url.startsWith("blob:")) URL.revokeObjectURL(S.pendingImage.url);
-            S.pendingImage = null;
-
             computeAll();
             S.selected = { albedo: true, normal: false, height: false, roughness: false, ao: false };
             S.savedMsg = "";
+            S.savedThisResult = false;
+            S.recropping = false;
             S.view = "result";
             renderView();
         }
 
-        function cancelCrop() {
-            if (S.pendingImage?.url.startsWith("blob:")) URL.revokeObjectURL(S.pendingImage.url);
-            S.pendingImage = null;
+        // NUEVO (pedido del usuario -- el botón de atrás no hacía nada
+        // desde "mapas"/cerraba la app entera desde cualquier pestaña de
+        // esta herramienta): único handler registrado una vez con
+        // ctx.pushBack al entrar a "crop" (ver loadImageFromUrl) -- cubre
+        // los 3 casos posibles según en qué estado esté la herramienta
+        // cuando de verdad llega un "atrás" (físico, gesto, o el botón
+        // "Cancelar"/"Empezar de nuevo", que ahora solo piden
+        // history.back() en vez de mutar el estado ellos mismos, para que
+        // atrás/los botones en pantalla sean SIEMPRE el mismo camino).
+        function backFromCropOrResult() {
+            if (S.view === "crop" && S.recropping) {
+                // Cancelando un "Recortar de nuevo" -- el resultado ya
+                // generado sigue intacto, no hay nada que avisar.
+                S.recropping = false;
+                S.view = "result";
+                renderView();
+                return;
+            }
+            if (S.view === "result" && !S.savedThisResult) {
+                if (!confirm("Si salís ahora se va a borrar la foto actual, ¿confirmás?")) {
+                    ctx.pushBack(backFromCropOrResult); // el usuario se arrepintió -- reponer el nivel de "atrás"
+                    return;
+                }
+            }
+            discardOriginal();
             S.view = "pick";
             renderView();
         }
@@ -441,6 +527,7 @@ registerRenderer("creadortexturas", {
                     await invoke("collections_add_image", { id: collectionId, filename, dataBase64: base64 });
                 }
                 S.savedMsg = "Guardado en la colección.";
+                S.savedThisResult = true;
                 await loadCollections();
             } catch (e) {
                 S.savedMsg = "Error: " + e;
@@ -499,9 +586,19 @@ registerRenderer("creadortexturas", {
             elm.addEventListener("click", (e) => { if (fired) { e.stopPropagation(); e.preventDefault(); fired = false; } }, true);
         }
 
+        function closeCollectionDetail() {
+            S.activeCollection = null;
+            renderView();
+        }
+
         async function openCollectionDetail(c) {
             S.activeCollection = c;
             S.activeImages = [];
+            // NUEVO: mismo mecanismo de "atrás" que crop/result (ver
+            // backFromCropOrResult) -- antes, entrar al detalle de una
+            // colección no se sumaba a la pila, así que atrás salía
+            // directo de la herramienta en vez de volver a la lista.
+            ctx.pushBack(closeCollectionDetail);
             renderView();
             let images = [];
             try { images = await invoke("collections_list_images", { id: c.id }); } catch (e) { /* no-op */ }
@@ -570,13 +667,13 @@ registerRenderer("creadortexturas", {
 
             pickRow.append(cameraBtn, galleryInp, galleryBtn);
             root.appendChild(pickRow);
-            // NUEVO: acortado -- antes explicaba en detalle la limitación
-            // de la cámara del sistema por fabricante (bug real, ver el
-            // comentario grande arriba), pero ahora que "Tomar foto" abre
-            // nuestra propia pantalla con enfoque manual esa aclaración ya
-            // no aplica -- una "descripción gigante" como esa era en sí
-            // misma otro bug reportado por el usuario.
-            root.appendChild(el("p", { className: "tx-empty", textContent: "Sacale una foto de cerca y de frente a una superficie (piedra, madera, tela...) para generar su set de texturas. \"Tomar foto\" incluye un control de enfoque manual (modo macro) para las tomas de cerca." }));
+            // NUEVO (pedido del usuario -- "quita esa descripción gigante"):
+            // ya había un primer acortado (ver historial), pero seguía
+            // siendo un párrafo largo en la pantalla de entrada -- se deja
+            // solo una línea de una función real (evitar que el usuario
+            // encuadre mal), sin explicar de nuevo el enfoque manual (ya es
+            // evidente al entrar a la cámara).
+            root.appendChild(el("p", { className: "tx-empty", textContent: "Sacale una foto de cerca y de frente a la superficie." }));
         }
 
         function renderCrop() {
@@ -600,7 +697,10 @@ registerRenderer("creadortexturas", {
             const fullBtn = el("button", { textContent: "Usar foto completa" });
             fullBtn.onclick = () => applyCrop(true);
             const cancelBtn = el("button", { textContent: "Cancelar" });
-            cancelBtn.onclick = cancelCrop;
+            // NUEVO: pide history.back() en vez de cancelar el recorte
+            // directo -- así "Cancelar" y el botón físico de atrás hacen
+            // exactamente lo mismo (ver backFromCropOrResult).
+            cancelBtn.onclick = () => history.back();
             actions.append(applyBtn, fullBtn, cancelBtn);
             root.appendChild(actions);
 
@@ -612,7 +712,7 @@ registerRenderer("creadortexturas", {
             // loadImageFromUrl() en vez de crear un <img> nuevo con el
             // mismo src (que aunque salga del cache decodifica de forma
             // asíncrona igual) -- evita un salto de layout innecesario.
-            const img = S.pendingImage.img;
+            const img = S.original.img;
             img.className = "tx-crop-img";
             container.appendChild(img);
 
@@ -735,9 +835,23 @@ registerRenderer("creadortexturas", {
             strengthRow.appendChild(slider);
             root.appendChild(strengthRow);
 
+            const resultActions = el("div", { className: "tx-result-actions" });
+            const recropBtn = el("button", { textContent: "Recortar de nuevo" });
+            // NUEVO (pedido del usuario -- poder ajustar el recorte sin
+            // perder el resultado ya generado si se cancela): opera SIEMPRE
+            // sobre S.original (la foto sin recortar, nunca descartada
+            // hasta discardOriginal) -- así recortar de nuevo no degrada
+            // calidad recortando un recorte anterior, y si el usuario se
+            // arrepiente (Cancelar/atrás) vuelve a este mismo resultado tal
+            // cual estaba (ver backFromCropOrResult).
+            recropBtn.onclick = () => { S.recropping = true; S.cropBox = { x: 0, y: 0, w: 1, h: 1 }; S.view = "crop"; renderView(); };
             const newPhotoBtn = el("button", { className: "tx-newphoto-btn", textContent: "Empezar de nuevo con otra foto" });
-            newPhotoBtn.onclick = () => { S.view = "pick"; S.savedMsg = ""; renderView(); };
-            root.appendChild(newPhotoBtn);
+            // NUEVO: pide history.back() -- si todavía no se guardó nada de
+            // este resultado, backFromCropOrResult avisa antes de
+            // descartarlo (mismo camino que el botón físico de atrás).
+            newPhotoBtn.onclick = () => history.back();
+            resultActions.append(recropBtn, newPhotoBtn);
+            root.appendChild(resultActions);
 
             if (S.savedMsg) {
                 root.appendChild(el("p", { className: S.savedIsError ? "tx-saved-msg tx-saved-msg--error" : "tx-saved-msg", textContent: S.savedMsg }));
@@ -859,7 +973,7 @@ registerRenderer("creadortexturas", {
             const c = S.activeCollection;
             const wrap = el("div", { className: "tx-coll-detail" });
             const backBtn = el("button", { className: "tx-back-btn", textContent: "← Colecciones" });
-            backBtn.onclick = () => { S.activeCollection = null; renderView(); };
+            backBtn.onclick = () => history.back();
             wrap.appendChild(backBtn);
 
             wrap.appendChild(el("div", { className: "tx-coll-detail-title", textContent: c.name }));
@@ -899,6 +1013,16 @@ registerRenderer("creadortexturas", {
             const tabs = el("div", { className: "tx-tabs" });
             [["crear", "Crear"], ["colecciones", "Colecciones"]].forEach(([key, label]) => {
                 const btn = el("button", { className: `tx-tab${S.tab === key ? " tx-tab--active" : ""}`, textContent: label });
+                // Cambiar de tab es lateral (no "profundidad"), mismo
+                // criterio que el Hub -- no pasa por history.back(). Si se
+                // cambia de tab con una colección abierta, el handler que
+                // openCollectionDetail dejó en la pila de "atrás" queda sin
+                // usar (limitación conocida y aceptada del modelo actual de
+                // pila única de main.js, que no tiene forma de "cancelar"
+                // una entrada sin recorrerla) -- como closeCollectionDetail
+                // es un no-op si ya no hay colección activa, lo peor que
+                // pasa es que un futuro "atrás" se gaste de más ahí, no un
+                // estado roto.
                 btn.onclick = () => { S.tab = key; S.activeCollection = null; renderView(); };
                 tabs.appendChild(btn);
             });
@@ -925,19 +1049,25 @@ registerRenderer("creadortexturas", {
         // entrar a la herramienta, igual que Configuración lo hace con el
         // selector de carpeta.
         ctx.checkPendingCameraCapture().then(res => {
-            if (res && res.path && res.key === "texturas" && S.view === "pick" && !S.pendingImage) {
+            if (res && res.path && res.key === "texturas" && S.view === "pick" && !S.original) {
                 loadCapturedPhoto(res.path);
             }
         });
     },
     onOutput() {},
     onDone() {},
-    // NUEVO (auditoría -- hallazgo MEDIO #4): si el usuario sale de la
-    // herramienta con una foto pendiente de recortar (blob: de la galería o
-    // de la cámara), ese blob quedaba retenido en memoria por el resto de
-    // la sesión de la WebView -- mismo patrón que applyCrop/cancelCrop ya
-    // usan para el caso en que sí se termina el flujo de recorte.
+    // NUEVO (auditoría -- hallazgo MEDIO #4, ahora sobre S.original en vez
+    // de S.pendingImage -- ver la nota grande arriba sobre por qué S pasó a
+    // ser de módulo): si el usuario sale de la herramienta con una foto
+    // sin descartar (blob: de la galería o de la cámara, en cualquier
+    // punto de pick/crop/result), ese blob quedaba retenido en memoria por
+    // el resto de la sesión de la WebView. También se saca acá el listener
+    // de "visibilitychange" del fix de la cámara atascada (ver
+    // captureFromCamera) -- document persiste entre entradas/salidas de
+    // esta herramienta (no persistent), así que sin este cleanup se
+    // acumularía un listener más por cada vez que se abre.
     onLeave() {
-        if (S?.pendingImage?.url?.startsWith("blob:")) URL.revokeObjectURL(S.pendingImage.url);
+        if (S?.original?.url?.startsWith("blob:")) URL.revokeObjectURL(S.original.url);
+        if (visibilityHandler) { document.removeEventListener("visibilitychange", visibilityHandler); visibilityHandler = null; }
     },
 });

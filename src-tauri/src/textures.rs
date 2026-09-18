@@ -7,20 +7,57 @@
 // Rust es GUARDAR los PNG resultantes en storage compartido -- mismo gate
 // de permiso "Acceso a todos los archivos" que ya usan SyncManager y
 // Descargar Música (ver storage.rs), reutilizado tal cual.
-use tauri::AppHandle;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use tauri::{AppHandle, Manager};
+
+// NUEVO (pedido del usuario -- poder elegir dónde se guardan las
+// texturas): mismo patrón que DownloaderConfig en downloader.rs
+// (dl_get_config/dl_set_config) -- carpeta configurable vía el selector
+// nativo (folder_picker.rs), persistida en app_data_dir.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TexturesConfig {
+    pub folder: String,
+}
+
+impl Default for TexturesConfig {
+    fn default() -> Self {
+        // TODO(storage): path hardcodeado al volumen "primary" de Android
+        // como default -- no hay hoy ninguna función ya expuesta (JNI, ver
+        // storage.rs/installer.rs) que resuelva el directorio real de
+        // almacenamiento externo. Es el default que ya funcionaba antes de
+        // que la carpeta fuera configurable, así que instalaciones
+        // existentes no ven ningún cambio hasta que elijan otra a mano.
+        Self { folder: "/storage/emulated/0/Pictures/AlejoTools/Texturas".to_string() }
+    }
+}
+
+fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("textures_config.json"))
+}
+
+#[tauri::command]
+pub fn textures_get_config(app: AppHandle) -> TexturesConfig {
+    let Ok(path) = config_path(&app) else { return TexturesConfig::default() };
+    std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn textures_set_config(app: AppHandle, folder: String) -> Result<(), String> {
+    let path = config_path(&app)?;
+    let cfg = TexturesConfig { folder: folder.trim().to_string() };
+    let s = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+    std::fs::write(&path, s).map_err(|e| e.to_string())
+}
 
 // pub(crate): reusado por collections.rs -- las colecciones son
 // subcarpetas DENTRO de esta misma carpeta general de texturas (pedido
 // del usuario), no un árbol separado.
-// TODO(storage): path hardcodeado al volumen "primary" de Android. No hay
-// hoy ninguna función ya expuesta (JNI, ver storage.rs/installer.rs) que
-// resuelva el directorio real de almacenamiento externo -- exponer una
-// requeriría agregar un método nuevo del lado Kotlin (MainActivity.kt),
-// fuera del alcance de este pase. Dejar como está: es el path que ya
-// funciona hoy para el caso común (un solo storage interno, volumen
-// "primary"), que es la enorme mayoría de los dispositivos Android reales.
-pub(crate) fn textures_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from("/storage/emulated/0/Pictures/AlejoTools/Texturas")
+pub(crate) fn textures_dir(app: &AppHandle) -> PathBuf {
+    PathBuf::from(textures_get_config(app.clone()).folder)
 }
 
 // NUEVO: base64 a mano en vez de agregar una dependencia solo para esto
@@ -80,7 +117,7 @@ pub async fn save_texture_png(app: AppHandle, filename: String, data_base64: Str
         return Err("Falta el permiso \"Acceso a todos los archivos\" -- pedilo desde Sincronización o en Ajustes del sistema.".to_string());
     }
     let bytes = base64_decode(&data_base64)?;
-    let dir = textures_dir();
+    let dir = textures_dir(&app);
     tokio::fs::create_dir_all(&dir).await.map_err(|e| format!("No se pudo crear la carpeta: {e}"))?;
     // Nombre saneado -- viene de nuestro propio JS (siempre algo tipo
     // "albedo.png"), pero por las dudas evitamos que un "/" se cuele y

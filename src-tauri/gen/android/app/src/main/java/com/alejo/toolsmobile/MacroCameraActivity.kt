@@ -2,8 +2,10 @@ package com.alejo.toolsmobile
 
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.os.Bundle
 import android.view.Gravity
@@ -11,6 +13,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
@@ -49,6 +52,20 @@ import java.io.File
 // CaptureRequest.LENS_FOCUS_DISTANCE permite, expuesto acá vía el puente
 // oficial de CameraX a Camera2 (androidx.camera.camera2.interop), sin
 // tener que reimplementar toda la cámara en Camera2 puro.
+//
+// NUEVO (pedido del usuario, celular Samsung S23 Ultra -- "puede que este
+// permita acceder a las diferentes cámaras desde otras apps, si detecta
+// que el celular no lo puede hacer, que use la que ya existe"): algunos
+// teléfonos (sobre todo flagships recientes) exponen cada lente física
+// trasera (ultra-wide/wide/tele) como una CÁMARA SEPARADA en
+// CameraManager.cameraIdList -- otros esconden todo eso detrás de una
+// única cámara "lógica" que hace el zoom internamente, y ahí no hay nada
+// que listar. Se detecta esto DESPUÉS de bindear la cámara por defecto (ver
+// bindCamera): recién ahí se sabe la distancia focal real de la lente que
+// CameraX eligió como "1x" de referencia, necesaria para calcular la
+// etiqueta ("0.6x"/"2x"/etc.) del resto. Si sólo hay una cámara trasera
+// real, el selector de lentes simplemente no se muestra -- mismo
+// comportamiento de antes, sin romper nada.
 @ExperimentalCamera2Interop
 class MacroCameraActivity : AppCompatActivity() {
     private var camera: Camera? = null
@@ -56,7 +73,15 @@ class MacroCameraActivity : AppCompatActivity() {
     private lateinit var imageCapture: ImageCapture
     private lateinit var focusSeekBar: SeekBar
     private lateinit var focusLabel: TextView
+    private lateinit var controlsPanel: LinearLayout
+    private var lensRow: LinearLayout? = null
     private var capturing = false
+
+    private var previewViewRef: PreviewView? = null
+    private var currentKey: String = ""
+    private data class LensOption(val cameraId: String, val label: String)
+    private var lensOptions: List<LensOption> = emptyList()
+    private var activeLensId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -90,7 +115,7 @@ class MacroCameraActivity : AppCompatActivity() {
         }
         root.addView(closeBtn)
 
-        val controls = LinearLayout(this).apply {
+        controlsPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#99000000"))
             setPadding(dp(20), dp(16), dp(20), dp(28))
@@ -104,7 +129,7 @@ class MacroCameraActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             textSize = 13f
         }
-        controls.addView(focusLabel)
+        controlsPanel.addView(focusLabel)
 
         // Desliza de "lejos" (0, izquierda) a "macro" (minFocusDistance,
         // derecha) -- deshabilitado hasta saber si esta lente lo permite
@@ -115,14 +140,14 @@ class MacroCameraActivity : AppCompatActivity() {
             progress = 0
             isEnabled = false
         }
-        controls.addView(focusSeekBar)
+        controlsPanel.addView(focusSeekBar)
 
         val autoBtn = Button(this).apply {
             text = "Volver a enfoque automático"
             textSize = 12f
             setOnClickListener { resetToAutoFocus() }
         }
-        controls.addView(autoBtn)
+        controlsPanel.addView(autoBtn)
 
         val captureRow = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(96))
@@ -137,9 +162,9 @@ class MacroCameraActivity : AppCompatActivity() {
             setOnClickListener { takePhoto(key) }
         }
         captureRow.addView(captureBtn)
-        controls.addView(captureRow)
+        controlsPanel.addView(captureRow)
 
-        root.addView(controls)
+        root.addView(controlsPanel)
         setContentView(root)
 
         focusSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -153,10 +178,12 @@ class MacroCameraActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(sb: SeekBar) {}
         })
 
-        bindCamera(previewView, key)
+        bindCamera(previewView, key, CameraSelector.DEFAULT_BACK_CAMERA)
     }
 
-    private fun bindCamera(previewView: PreviewView, key: String) {
+    private fun bindCamera(previewView: PreviewView, key: String, cameraSelector: CameraSelector) {
+        previewViewRef = previewView
+        currentKey = key
         val providerFuture = ProcessCameraProvider.getInstance(this)
         providerFuture.addListener({
             try {
@@ -196,20 +223,127 @@ class MacroCameraActivity : AppCompatActivity() {
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                     .build()
                 provider.unbindAll()
-                val cam = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+                val cam = provider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
                 camera = cam
+                activeLensId = Camera2CameraInfo.from(cam.cameraInfo).cameraId
                 minFocusDistance = Camera2CameraInfo.from(cam.cameraInfo)
                     .getCameraCharacteristic(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f
+                focusSeekBar.progress = 0
                 if (minFocusDistance > 0f) {
                     focusSeekBar.isEnabled = true
                     focusLabel.text = "Enfoque: auto (deslizá para modo macro)"
                 } else {
+                    focusSeekBar.isEnabled = false
                     focusLabel.text = "Este teléfono no permite enfoque manual -- foco automático"
                 }
+
+                // Recién con una cámara ya bindeada se conoce la distancia
+                // focal real de la lente "1x" de referencia -- se arma el
+                // selector de lentes UNA sola vez (si hay más de una
+                // trasera real); en cambios de lente posteriores solo se
+                // refresca cuál chip está activo.
+                if (lensOptions.isEmpty()) {
+                    val referenceFocal = focalLengthOf(activeLensId!!)
+                    lensOptions = detectBackLenses(referenceFocal)
+                    if (lensOptions.size > 1) buildLensRow()
+                }
+                updateActiveLensChip()
             } catch (e: Exception) {
                 focusLabel.text = "No se pudo iniciar la cámara: ${e.message}"
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun focalLengthOf(cameraId: String): Float {
+        val manager = getSystemService(CAMERA_SERVICE) as CameraManager
+        return try {
+            manager.getCameraCharacteristics(cameraId)
+                .get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+                ?.firstOrNull() ?: 0f
+        } catch (e: Exception) {
+            0f
+        }
+    }
+
+    // Etiqueta tipo "0.6x"/"1x"/"3x": aproximación estándar de zoom óptico
+    // = distancia focal de esta lente / distancia focal de la lente "1x"
+    // (la que CameraX bindea por defecto) -- una lente ultra-wide tiene
+    // distancia focal MENOR (FOV más ancho, "menos zoom") y una teleobjetivo
+    // MAYOR, así que el cociente cae naturalmente de un lado o del otro de
+    // 1.0 sin necesidad de convertir a equivalente de 35mm (que requeriría
+    // también el tamaño físico del sensor de cada lente).
+    private fun detectBackLenses(referenceFocal: Float): List<LensOption> {
+        if (referenceFocal <= 0f) return emptyList()
+        val manager = getSystemService(CAMERA_SERVICE) as CameraManager
+        val raw = mutableListOf<Pair<String, Float>>()
+        for (id in manager.cameraIdList) {
+            try {
+                val chars = manager.getCameraCharacteristics(id)
+                if (chars.get(CameraCharacteristics.LENS_FACING) != CameraCharacteristics.LENS_FACING_BACK) continue
+                val focal = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull() ?: continue
+                raw.add(id to focal)
+            } catch (e: Exception) {
+                // Una lente que no se puede leer no debería tirar abajo el
+                // resto del selector -- se la ignora.
+            }
+        }
+        // distinctBy: algunos teléfonos listan la MISMA lente física bajo
+        // más de un id lógico -- se queda con una sola entrada por
+        // distancia focal real.
+        if (raw.distinctBy { it.second }.size <= 1) return emptyList()
+        return raw.distinctBy { it.second }.sortedBy { it.second }.map { (id, focal) ->
+            val ratio = focal / referenceFocal
+            val label = if (kotlin.math.abs(ratio - 1f) < 0.05f) "1x" else String.format("%.1fx", ratio)
+            LensOption(id, label)
+        }
+    }
+
+    private fun buildLensRow() {
+        val scroller = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        lensOptions.forEach { opt ->
+            val chip = Button(this).apply {
+                text = opt.label
+                textSize = 12f
+                tag = opt.cameraId
+                setPadding(dp(14), dp(6), dp(14), dp(6))
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    marginEnd = dp(8)
+                }
+                setOnClickListener { switchLens(opt.cameraId) }
+            }
+            row.addView(chip)
+        }
+        scroller.addView(row)
+        lensRow = row
+        // Arriba de todo del panel de controles (índice 0), para que sea
+        // lo primero que se ve al abrir la cámara si el teléfono soporta
+        // varias lentes traseras.
+        controlsPanel.addView(scroller, 0)
+    }
+
+    private fun updateActiveLensChip() {
+        val row = lensRow ?: return
+        for (i in 0 until row.childCount) {
+            val chip = row.getChildAt(i) as? Button ?: continue
+            val active = chip.tag == activeLensId
+            chip.setTypeface(null, if (active) Typeface.BOLD else Typeface.NORMAL)
+            chip.setBackgroundColor(if (active) Color.parseColor("#FFFFFF") else Color.parseColor("#33FFFFFF"))
+            chip.setTextColor(if (active) Color.BLACK else Color.WHITE)
+        }
+    }
+
+    private fun switchLens(cameraId: String) {
+        if (cameraId == activeLensId) return
+        val pv = previewViewRef ?: return
+        val selector = CameraSelector.Builder()
+            .addCameraFilter { infos -> infos.filter { Camera2CameraInfo.from(it).cameraId == cameraId } }
+            .build()
+        bindCamera(pv, currentKey, selector)
     }
 
     private fun applyManualFocus(distance: Float) {

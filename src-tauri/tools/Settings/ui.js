@@ -32,6 +32,10 @@ registerRenderer("settings", {
         const FOLDERS = [
             { key: "music", label: "Descargar Música", get: () => invoke("dl_get_config"), set: (folder) => invoke("dl_set_config", { folder }) },
             { key: "pdf", label: "Lector de Documentos (PDF y Libros)", get: () => invoke("pdf_get_config"), set: (folder) => invoke("pdf_set_config", { folder }) },
+            // NUEVO (pedido del usuario -- Creador de Texturas): mismo
+            // patrón que Música/PDF, ver textures.rs (textures_get_config/
+            // textures_set_config).
+            { key: "texturas", label: "Creador de Texturas", get: () => invoke("textures_get_config"), set: (folder) => invoke("textures_set_config", { folder }) },
         ];
 
         wrap.innerHTML = `
