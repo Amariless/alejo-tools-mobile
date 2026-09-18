@@ -35,7 +35,8 @@
   padding: 24px 0;
 }
 
-.tx-newphoto-btn { font-size: .8rem; color: var(--text-muted); background: transparent; }
+.tx-result-actions { display: flex; gap: 8px; justify-content: center; }
+.tx-newphoto-btn, .tx-result-actions button { font-size: .8rem; color: var(--text-muted); background: transparent; }
 
 /* ── Recorte ── */
 /* NUEVO (bug real, encontrado en vivo): sin align-items acá, el default
