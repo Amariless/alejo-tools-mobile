@@ -144,12 +144,33 @@ registerRenderer("lectordocs", {
             try { const cfg = await invoke("book_get_config"); b.folder = cfg.folder; b.fontSize = cfg.fontSize; } catch (e) { /* keep previous */ }
             await ensureStorageAccess(b);
             if (b.hasStorageAccess) {
-                try { b.files = await invoke("book_list_folder", { folder: b.folder }); }
-                catch (e) { b.error = String(e); b.files = []; }
+                try {
+                    b.files = await invoke("book_list_folder", { folder: b.folder });
+                    // NUEVO (pedido del usuario -- marcar un libro como
+                    // "Estoy leyendo" para verlo primero en la lista): el
+                    // progreso guardado (book_get_progress) ya se pedía por
+                    // archivo para otras cosas en otras herramientas -- acá
+                    // se pide en paralelo (no son muchos archivos, y es una
+                    // simple lectura de JSON, no algo pesado como una
+                    // miniatura) solo para saber cuál está marcado.
+                    await Promise.all(b.files.map(async (f) => {
+                        try { const prog = await invoke("book_get_progress", { path: f.path }); f.currentlyReading = !!prog?.currentlyReading; }
+                        catch (e) { f.currentlyReading = false; }
+                    }));
+                    b.files.sort((a, c) => (c.currentlyReading ? 1 : 0) - (a.currentlyReading ? 1 : 0));
+                } catch (e) { b.error = String(e); b.files = []; }
             }
             b.loading = false;
             renderView();
             if (S.tab === "books") loadThumbnailsSequentially("books", b.files);
+        }
+
+        async function toggleCurrentlyReading(file) {
+            closeFileMenu();
+            const next = !file.currentlyReading;
+            try { await invoke("book_set_currently_reading", { path: file.path, value: next }); }
+            catch (e) { alert("No se pudo actualizar: " + e); return; }
+            await loadBooksList();
         }
 
         // Miniaturas: una por vez (no en paralelo -- evita saturar el
@@ -218,6 +239,13 @@ registerRenderer("lectordocs", {
                 overlay.onclick = (e) => { if (e.target === overlay) closeFileMenu(); };
                 const sheet = el("div", { className: "ld-sheet" });
                 sheet.appendChild(el("div", { className: "ld-sheet-title", textContent: file.name }));
+                // NUEVO (pedido del usuario, solo aplica a Libros -- un PDF
+                // no tiene este concepto): marcar/desmarcar "Estoy leyendo".
+                if (format === "books") {
+                    const readingBtn = el("button", { className: "ld-sheet-btn", textContent: file.currentlyReading ? "Ya no lo estoy leyendo" : "Marcar como que estoy leyendo" });
+                    readingBtn.onclick = () => toggleCurrentlyReading(file);
+                    sheet.appendChild(readingBtn);
+                }
                 const renameBtn = el("button", { className: "ld-sheet-btn", textContent: "Renombrar" });
                 renameBtn.onclick = () => openRenameDialog(format, file);
                 const propsBtn = el("button", { className: "ld-sheet-btn", textContent: "Propiedades" });
@@ -289,6 +317,9 @@ registerRenderer("lectordocs", {
             thumbEls[f.path] = thumb;
 
             const main = el("div", { className: "ld-item-main" });
+            if (format === "books" && f.currentlyReading) {
+                main.appendChild(el("div", { className: "ld-item-badge", textContent: "Leyendo ahora" }));
+            }
             main.appendChild(el("div", { className: "ld-item-name", textContent: f.name }));
             main.appendChild(el("div", { className: "ld-item-sub", textContent: `${fmtBytes(f.sizeBytes)}${f.modifiedAt ? " · " + fmtDate(f.modifiedAt) : ""}` }));
 
