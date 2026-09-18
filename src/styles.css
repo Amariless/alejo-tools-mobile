@@ -287,9 +287,28 @@ body {
   text-align: left;
   box-shadow: var(--shadow-sm);
   min-height: 96px;
+  cursor: pointer;
 }
 .hub-card:active { transform: scale(.96); background: var(--surface-hover); }
-.hub-card--wide { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; gap: 14px; }
+.hub-card--wide { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+
+/* NUEVO (pedido del usuario -- widgets accionables del Hub, ej. "Pausar
+   sync"/"Iniciar Pomodoro" sin abrir la tool): fila de botones dentro de
+   una tarjeta ancha. z-index/position no hacen falta -- stopPropagation()
+   en el handler de cada botón (ver buildWideCard, main.js) ya evita que el
+   toque también dispare el onclick de la tarjeta entera. */
+.hub-card-actions { display: flex; gap: 8px; flex-basis: 100%; }
+.hub-card-action {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm, 8px);
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: .8rem;
+  font-weight: 600;
+}
+.hub-card-action:active { background: var(--surface-hover); }
 .hub-card-icon {
   width: 30px; height: 30px; border-radius: 9px;
   display: flex; align-items: center; justify-content: center; flex: 0 0 auto;

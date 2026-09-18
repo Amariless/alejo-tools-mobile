@@ -175,6 +175,25 @@ pub async fn sync_set_folder_paused(app: AppHandle, id: String, paused: bool) ->
     st_put(&app, &format!("/rest/config/folders/{id}"), &folder).await
 }
 
+/// NUEVO (pedido del usuario -- widget del Hub "Activar/Pausar sync"):
+/// Syncthing no expone un único toggle "todo pausado" que podamos leer de
+/// vuelta de forma confiable en todas las versiones -- en vez de eso se
+/// pausa/reanuda CADA carpeta con el mismo mecanismo que ya usa
+/// sync_set_folder_paused (un PUT por carpeta, reusando el objeto que ya
+/// devuelve la lista en vez de volver a pedirlo uno por uno).
+#[tauri::command]
+pub async fn sync_set_all_paused(app: AppHandle, paused: bool) -> Result<(), String> {
+    let folders = st_get(&app, "/rest/config/folders").await?;
+    let arr = folders.as_array().cloned().unwrap_or_default();
+    for mut folder in arr {
+        let id = folder.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if id.is_empty() { continue; }
+        folder["paused"] = serde_json::Value::Bool(paused);
+        st_put(&app, &format!("/rest/config/folders/{id}"), &folder).await?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn sync_rescan_folder(app: AppHandle, id: String) -> Result<(), String> {
     st_post(&app, &format!("/rest/db/scan?folder={id}")).await

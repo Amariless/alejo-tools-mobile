@@ -502,9 +502,27 @@ registerRenderer("syncmanager", {
     getWidgetSummary() {
         if (!S || !S.config?.api_key) return null;
         if (!S.status) return { title: "Sincronización", subtitle: "Consultando..." };
-        return {
+        const summary = {
             title: "Sincronización",
             subtitle: S.status.connected ? "Al día" : (S.status.error || "Desconectado"),
         };
+        // NUEVO (pedido del usuario -- widget del Hub con acción rápida):
+        // solo se ofrece si ya hay carpetas conocidas (S.folders, cargado
+        // por el refreshAll() de esta misma herramienta cada 10s) -- el
+        // botón queda del lado del Hub, pero la acción en sí (qué invoke
+        // llamar, qué carpetas están pausadas) la decide esta herramienta,
+        // que es quien conoce ese estado.
+        if (S.status.connected && S.folders?.length) {
+            const allPaused = S.folders.every(f => f.paused);
+            summary.actions = [{
+                label: allPaused ? "Reanudar sync" : "Pausar sync",
+                onTap: async () => {
+                    try { await invoke("sync_set_all_paused", { paused: !allPaused }); }
+                    catch (e) { /* el Hub no tiene dónde mostrar el error -- se verá reflejado (o no) en el próximo refresh */ }
+                    await refreshAll();
+                },
+            }];
+        }
+        return summary;
     },
 });

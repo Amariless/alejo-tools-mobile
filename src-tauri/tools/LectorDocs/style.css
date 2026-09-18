@@ -20,6 +20,13 @@
 }
 .ld-tab--active { background: var(--accent, #0ea5e9); border-color: transparent; color: white; }
 
+/* NUEVO: envuelve todo lo que va debajo de .ld-tabs (antes eran hijos
+   directos de .ld-root) para poder engancharle el gesto de swipe sin que
+   compita con los botones de la barra de tabs -- necesita el mismo
+   flex:1/column que tenía .ld-root para que .ld-list (flex:1, scrolleable)
+   siga midiendo bien un nivel más adentro. */
+.ld-tab-content { flex: 1; min-height: 0; display: flex; flex-direction: column; touch-action: pan-y; }
+
 .ld-folder-label {
   margin: 10px 16px 0;
   font-size: .74rem;
