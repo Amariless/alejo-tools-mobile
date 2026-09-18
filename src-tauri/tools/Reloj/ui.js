@@ -389,6 +389,22 @@ registerRenderer("reloj", {
             render();
         }
 
+        // NUEVO (bug real, encontrado en vivo con un harness de prueba --
+        // "ReferenceError: startPomodoro is not defined", tirado desde
+        // getWidgetSummary() y sin capturar en ningún lado, lo que
+        // abortaba TODO renderHub() a mitad de camino y se llevaba puesta
+        // la sección "Todas las herramientas" de abajo): startPomodoro/
+        // pausePomodoro son funciones locales a render(tool, area), pero
+        // getWidgetSummary() es un método HERMANO (no anidado) que solo
+        // puede ver lo que sea de módulo -- igual que S. En vez de
+        // reestructurar todo el archivo para hacer módulo-scope a estas
+        // funciones (que a su vez llaman a la función interna render(),
+        // también local), se guarda una referencia en el propio S -- ya es
+        // de módulo y para cuando el Hub llega a pedir getWidgetSummary()
+        // esto ya corrió (Reloj es "persistent", se pre-inicializa en frío
+        // al arrancar la app, antes de que el Hub se pinte).
+        S._widgetActions = { startPomodoro, pausePomodoro };
+
         function resetPomodoro() {
             const p = S.pomodoro;
             if (p.tickHandle) { clearInterval(p.tickHandle); p.tickHandle = null; }
@@ -770,14 +786,14 @@ registerRenderer("reloj", {
             return {
                 title: "Reloj",
                 subtitle: p.remainingMsPaused != null ? "Pomodoro en pausa" : "Pomodoro detenido",
-                actions: [{ label: "Iniciar Pomodoro", onTap: startPomodoro }],
+                actions: [{ label: "Iniciar Pomodoro", onTap: () => S._widgetActions.startPomodoro() }],
             };
         }
         return {
             title: PHASE_LABEL[p.phase],
             subtitle: `${fmtTime(remainingMs())} restantes`,
             progress: 1 - remainingMs() / phaseDurationMs(p.phase),
-            actions: [{ label: "Pausar", onTap: pausePomodoro }],
+            actions: [{ label: "Pausar", onTap: () => S._widgetActions.pausePomodoro() }],
         };
     },
 });
