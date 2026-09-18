@@ -62,11 +62,19 @@ const categoryListEl   = document.getElementById("category-list");
 const pillarTabbar     = document.getElementById("pillar-tabbar");
 const pillarTabs       = Array.from(document.querySelectorAll(".pillar-tab"));
 
+// NUEVO (pedido del usuario -- auditoría encontró que cada tab de pilar
+// usaba, por pura coincidencia, el mismo glifo que la PRIMERA herramienta
+// de esa categoría en TOOL_PILLAR -- ver icons.js: "sync" es el ícono de
+// SyncManager, "clock" el de Reloj, "palette" el de Paleta de Colores. Si
+// el orden de TOOL_PILLAR cambiara o se agregara una herramienta nueva
+// antes en la lista, el ícono del pilar hubiera quedado "desincronizado"
+// de su origen sin que nadie lo note. Ahora cada pilar tiene su propio
+// glifo, sin relación con ninguna herramienta en particular.
 const PILLAR_INFO = {
     hub:     { label: "Favoritos",     glyph: "home" },
-    connect: { label: "Conectividad",  glyph: "sync" },
-    product: { label: "Productividad", glyph: "clock" },
-    create:  { label: "Suite Creativa", glyph: "palette" },
+    connect: { label: "Conectividad",  glyph: "pillarConnect" },
+    product: { label: "Productividad", glyph: "pillarProduct" },
+    create:  { label: "Suite Creativa", glyph: "sparkle" },
 };
 
 // ════════════════════════════════════════════════════════
@@ -138,6 +146,53 @@ const RENDERERS = {};
 const registerRenderer = (type, r) => RENDERERS[type] = r;
 const getRenderer      = (type)    => RENDERERS[type] || RENDERERS["text"];
 
+// NUEVO (pedido del usuario -- deslizar para cambiar de pestaña interna,
+// "como el Reloj" -- en realidad ni Reloj lo tenía todavía, se agrega acá
+// como helper genérico para no duplicar la lógica de gesto en cada
+// herramienta con pestañas propias, ver Reloj/ui.js y LectorDocs/ui.js).
+// Gesto simple de pointerdown/pointerup con umbral de distancia/tiempo --
+// mismo espíritu que attachLongPress/attachCropHandles de otras
+// herramientas (sin librería, consistente con el resto del proyecto).
+// Ignora punteros de mouse a propósito (pensado para touch; con mouse no
+// hay "deslizar", sería un click-and-drag que no debería disparar esto).
+// NUEVO (pedido del usuario -- accesos rápidos del Hub para herramientas
+// SIN estado persistente, ej. "+ Gasto" en Gastos o "Abrir cámara" en
+// Paleta de Colores): a diferencia de las acciones de una tarjeta ancha
+// (ver buildWideCard/getWidgetSummary, que sí tienen una instancia viva de
+// la tool corriendo de fondo), estas herramientas recién existen cuando se
+// entra a ellas -- no hay ningún closure vivo al que engancharle un
+// onTap(). En vez de eso, el botón deja "la intención" acá (un string
+// simple) y llama a selectTool() normal; el propio render() de la tool
+// revisa una vez, al arrancar, si hay algo pendiente para ella (mismo
+// espíritu que checkPendingCameraCapture/checkPendingFolderPick: un valor
+// que se consume una sola vez, no un evento).
+let pendingToolIntent = null;
+function consumePendingToolIntent() {
+    const v = pendingToolIntent;
+    pendingToolIntent = null;
+    return v;
+}
+
+function enableTabSwipe(containerEl, { getIndex, setIndex, count }) {
+    const MIN_DIST = 60, MAX_TIME = 600, MAX_VERTICAL = 60;
+    let downX = 0, downY = 0, downT = 0, active = false;
+    containerEl.addEventListener("pointerdown", (e) => {
+        if (e.pointerType === "mouse") return;
+        downX = e.clientX; downY = e.clientY; downT = Date.now(); active = true;
+    });
+    containerEl.addEventListener("pointerup", (e) => {
+        if (!active) return;
+        active = false;
+        if (Date.now() - downT > MAX_TIME) return;
+        const dx = e.clientX - downX, dy = e.clientY - downY;
+        if (Math.abs(dy) > MAX_VERTICAL || Math.abs(dx) < MIN_DIST) return; // fue scroll vertical, no swipe
+        const idx = getIndex();
+        if (dx < 0 && idx < count - 1) setIndex(idx + 1);
+        else if (dx > 0 && idx > 0) setIndex(idx - 1);
+    });
+    containerEl.addEventListener("pointercancel", () => { active = false; });
+}
+
 window._toolCtx = {
     invoke, el, lbl, runTool,
     appendLine, appendSeparator, resetBtn, classifyLine,
@@ -148,6 +203,8 @@ window._toolCtx = {
     // Lista" propio debe llamar a history.back() en vez de cerrar la
     // sub-vista directo, igual que hace acá el botón de la app-bar.
     pushBack,
+    enableTabSwipe,
+    consumePendingToolIntent,
     // pickFolder: abre el selector de carpeta nativo de Android y
     // devuelve la ruta elegida (o null si el usuario canceló, o si la
     // carpeta elegida no se pudo resolver a una ruta cruda -- ver
@@ -464,7 +521,12 @@ function buildWideCard(tool) {
     const summary = r?.getWidgetSummary ? r.getWidgetSummary() : null;
     if (!summary) return buildCompactCard(tool);
 
-    const card = el("button", { className: "hub-card hub-card--wide", type: "button" });
+    // NUEVO: <div role="button"> en vez de <button> -- un botón "action"
+    // (ver más abajo) puede terminar adentro de esta tarjeta, y un
+    // <button> no puede contener otro <button> (HTML inválido; el
+    // navegador cierra el externo apenas parsea el interno, rompiendo el
+    // árbol). Mismo patrón que ya usa LectorDocs para sus filas con menú.
+    const card = el("div", { className: "hub-card hub-card--wide", role: "button", tabIndex: 0 });
     const main = el("div", { className: "hub-card-main" });
     main.appendChild(badgeEl(tool, "wide"));
     const text = el("div", { className: "hub-card-text" });
@@ -480,15 +542,62 @@ function buildWideCard(tool) {
         ring.style.setProperty("--ring-color", window.AlejoIcons ? window.AlejoIcons.iconColor(tool.input) : "");
         card.appendChild(ring);
     }
+    // NUEVO (pedido del usuario -- widgets accionables: "activar/apagar la
+    // sincronización", "activar pomodoro" directo desde el Hub, sin abrir
+    // la tool): getWidgetSummary() puede devolver "actions" además de
+    // title/subtitle/progress -- cada acción trae su propio onTap (una
+    // closure definida DENTRO del propio ui.js de la tool, con acceso a su
+    // estado interno) así que acá no hace falta saber nada de cómo
+    // funciona cada herramienta, solo pintar el botón y ejecutarlo.
+    if (Array.isArray(summary.actions) && summary.actions.length) {
+        const actionsRow = el("div", { className: "hub-card-actions" });
+        summary.actions.forEach(action => {
+            const btn = el("button", { className: "hub-card-action", type: "button", textContent: action.label });
+            btn.onclick = (e) => {
+                e.stopPropagation(); // no disparar también card.onclick (abrir la tool)
+                Promise.resolve(action.onTap()).then(renderHub);
+            };
+            actionsRow.appendChild(btn);
+        });
+        card.appendChild(actionsRow);
+    }
     card.onclick = () => selectTool(tool);
+    card.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectTool(tool); } };
     return card;
 }
 
+// NUEVO (pedido del usuario -- accesos rápidos para herramientas sin
+// estado persistente: "Añadir gasto", "Abrir cámara para paleta de
+// colores"). No es genérico vía getWidgetSummary() como las tarjetas
+// anchas -- son solo 2 casos concretos, así que un mapa chico acá alcanza
+// sin inventar todo un mecanismo async de resúmenes para tools que ni
+// siquiera tienen una instancia corriendo (ver consumePendingToolIntent
+// más arriba para cómo la tool del otro lado se entera).
+const COMPACT_QUICK_ACTIONS = {
+    gastos: { label: "+ Gasto", intent: "new" },
+    paletacolores: { label: "Cámara", intent: "camera" },
+};
+
 function buildCompactCard(tool) {
-    const card = el("button", { className: "hub-card", type: "button" });
+    // NUEVO: mismo motivo que buildWideCard -- si hay un botón de acción
+    // adentro, el contenedor no puede ser un <button> (HTML inválido
+    // anidar botones).
+    const hasAction = !!COMPACT_QUICK_ACTIONS[tool.input];
+    const card = el(hasAction ? "div" : "button", hasAction ? { className: "hub-card", role: "button", tabIndex: 0 } : { className: "hub-card", type: "button" });
     card.appendChild(badgeEl(tool, "compact"));
     card.appendChild(el("div", { className: "hub-card-title", textContent: tool.name }));
+    const quick = COMPACT_QUICK_ACTIONS[tool.input];
+    if (quick) {
+        const btn = el("button", { className: "hub-card-action", type: "button", textContent: quick.label });
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            pendingToolIntent = quick.intent;
+            selectTool(tool);
+        };
+        card.appendChild(btn);
+    }
     card.onclick = () => selectTool(tool);
+    if (hasAction) card.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectTool(tool); } };
     return card;
 }
 

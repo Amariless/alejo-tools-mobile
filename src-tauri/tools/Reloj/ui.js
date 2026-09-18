@@ -707,6 +707,7 @@ registerRenderer("reloj", {
         }
 
         // ── Shell de pestañas ──
+        const TAB_KEYS = ["pomodoro", "mundial", "clima"];
         function render() {
             root.innerHTML = "";
 
@@ -723,6 +724,17 @@ registerRenderer("reloj", {
             else if (S.tab === "mundial") body.appendChild(renderWorld());
             else body.appendChild(renderWeather());
             root.appendChild(body);
+
+            // NUEVO (pedido del usuario -- deslizar para cambiar de pestaña,
+            // no solo tocarla arriba): helper genérico en main.js, ver
+            // enableTabSwipe -- se reengancha en cada render() porque body
+            // es un elemento nuevo cada vez (mismo criterio que el resto de
+            // los onclick de esta función).
+            ctx.enableTabSwipe(body, {
+                getIndex: () => TAB_KEYS.indexOf(S.tab),
+                setIndex: (i) => { S.tab = TAB_KEYS[i]; render(); },
+                count: TAB_KEYS.length,
+            });
         }
 
         render();
@@ -744,16 +756,28 @@ registerRenderer("reloj", {
     onDone() {},
     // NUEVO (Hub con tarjetas en vivo, propuesta de diseño aprobada): el
     // Hub llama esto (si existe) para pintar la tarjeta ancha de Reloj sin
-    // tener que abrir la herramienta. Solo hay algo que mostrar mientras
-    // el Pomodoro está corriendo -- null hace que el Hub caiga a una
-    // tarjeta compacta normal (mismo criterio que cualquier otra tool).
+    // tener que abrir la herramienta.
     getWidgetSummary() {
-        if (!S || !S.pomodoro.running) return null;
+        if (!S) return null;
         const p = S.pomodoro;
+        if (!p.running) {
+            // NUEVO (pedido del usuario -- acción rápida "Activar
+            // pomodoro" desde el Hub): antes esto devolvía null (sin
+            // Pomodoro corriendo no había nada que mostrar) y el Hub caía
+            // a una tarjeta compacta sin ninguna acción posible. Ahora
+            // sigue ofreciendo algo -- solo el botón de arrancar -- en vez
+            // de nada.
+            return {
+                title: "Reloj",
+                subtitle: p.remainingMsPaused != null ? "Pomodoro en pausa" : "Pomodoro detenido",
+                actions: [{ label: "Iniciar Pomodoro", onTap: startPomodoro }],
+            };
+        }
         return {
             title: PHASE_LABEL[p.phase],
             subtitle: `${fmtTime(remainingMs())} restantes`,
             progress: 1 - remainingMs() / phaseDurationMs(p.phase),
+            actions: [{ label: "Pausar", onTap: pausePomodoro }],
         };
     },
 });

@@ -330,6 +330,7 @@ registerRenderer("lectordocs", {
             return row;
         }
 
+        const TAB_KEYS = ["pdf", "books"];
         function renderList() {
             const tabs = el("div", { className: "ld-tabs" });
             [["pdf", "PDF"], ["books", "Libros"]].forEach(([key, label]) => {
@@ -343,8 +344,25 @@ registerRenderer("lectordocs", {
             });
             root.appendChild(tabs);
 
+            // NUEVO (pedido del usuario -- deslizar para cambiar de pestaña,
+            // no solo tocarla arriba): todo lo que sigue va DENTRO de este
+            // contenedor (no directo en root) para poder engancharle el
+            // gesto de swipe sin que compita con los botones de la barra de
+            // tabs -- ver enableTabSwipe en main.js.
+            const content = el("div", { className: "ld-tab-content" });
+            root.appendChild(content);
+            ctx.enableTabSwipe(content, {
+                getIndex: () => TAB_KEYS.indexOf(S.tab),
+                setIndex: (i) => {
+                    S.tab = TAB_KEYS[i];
+                    renderView();
+                    loadThumbnailsSequentially(S.tab, S.tab === "pdf" ? S.pdf.files : S.books.files);
+                },
+                count: TAB_KEYS.length,
+            });
+
             const b = S.tab === "pdf" ? S.pdf : S.books;
-            root.appendChild(el("div", { className: "ld-folder-label", textContent: b.folder || "…" }));
+            content.appendChild(el("div", { className: "ld-folder-label", textContent: b.folder || "…" }));
 
             // NUEVO: el usuario preguntó "no entiendo cómo convertir mis
             // libros en .epub, los tengo como PDF" -- la respuesta real es
@@ -360,7 +378,7 @@ registerRenderer("lectordocs", {
             // tiene sentido meter acá un conversor que iba a dar resultados
             // mediocres -- mejor aclarar la duda en la propia UI.
             if (S.tab === "books") {
-                root.appendChild(el("p", { className: "ld-tab-hint", textContent: "Esta pestaña es para archivos .epub. Si tenés un libro como PDF no hace falta convertirlo -- abrilo directo desde la pestaña \"PDF\", ahí arriba." }));
+                content.appendChild(el("p", { className: "ld-tab-hint", textContent: "Esta pestaña es para archivos .epub. Si tenés un libro como PDF no hace falta convertirlo -- abrilo directo desde la pestaña \"PDF\", ahí arriba." }));
             }
 
             if (b.hasStorageAccess === false) {
@@ -370,20 +388,20 @@ registerRenderer("lectordocs", {
                     <div class="ld-status-sub">Para leer archivos guardados en el teléfono hace falta darle a Alejo Tools acceso a "Todos los archivos".</div>`;
                 const btn = el("button", { className: "primary", textContent: "Dar permiso" });
                 btn.onclick = async () => { try { await invoke("sync_request_storage_permission"); } catch (e) { alert("Error: " + e); } };
-                root.append(permCard, btn);
+                content.append(permCard, btn);
                 return;
             }
 
-            if (b.loading) { root.appendChild(el("p", { className: "ld-empty", textContent: "Buscando archivos..." })); return; }
-            if (b.error) { root.appendChild(el("p", { className: "ld-error", textContent: b.error })); return; }
+            if (b.loading) { content.appendChild(el("p", { className: "ld-empty", textContent: "Buscando archivos..." })); return; }
+            if (b.error) { content.appendChild(el("p", { className: "ld-error", textContent: b.error })); return; }
             if (!b.files.length) {
-                root.appendChild(el("p", { className: "ld-empty", textContent: S.tab === "pdf" ? "Sin archivos .pdf en esta carpeta." : "Sin archivos .epub en esta carpeta." }));
+                content.appendChild(el("p", { className: "ld-empty", textContent: S.tab === "pdf" ? "Sin archivos .pdf en esta carpeta." : "Sin archivos .epub en esta carpeta." }));
                 return;
             }
 
             const list = el("div", { className: "ld-list" });
             b.files.forEach(f => list.appendChild(renderFileRow(S.tab, f)));
-            root.appendChild(list);
+            content.appendChild(list);
         }
 
         // ── Toque simple = mostrar/ocultar la barra flotante -- se activa

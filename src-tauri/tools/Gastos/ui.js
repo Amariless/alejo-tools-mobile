@@ -304,6 +304,11 @@ registerRenderer("gastos", {
         }
 
         loadData();
+        // NUEVO (pedido del usuario -- acción rápida "Añadir gasto" desde
+        // la tarjeta de esta tool en el Hub): consumePendingToolIntent()
+        // (ver main.js) devuelve "new" una sola vez si se entró acá desde
+        // ese botón -- abre el formulario de carga directo.
+        if (ctx.consumePendingToolIntent?.() === "new") openNew("expense");
     },
     onOutput() {},
     onDone() {},

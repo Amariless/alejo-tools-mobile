@@ -67,7 +67,16 @@ const GLYPHS = {
     bricks: `<rect x="3" y="4" width="8" height="5" stroke="currentColor" stroke-width="1.7" fill="none"/><rect x="11" y="4" width="10" height="5" stroke="currentColor" stroke-width="1.7" fill="none"/><rect x="3" y="9.5" width="6" height="5" stroke="currentColor" stroke-width="1.7" fill="none"/><rect x="9" y="9.5" width="8" height="5" stroke="currentColor" stroke-width="1.7" fill="none"/><rect x="17" y="9.5" width="4" height="5" stroke="currentColor" stroke-width="1.7" fill="none"/><rect x="3" y="15" width="9" height="5" stroke="currentColor" stroke-width="1.7" fill="none"/><rect x="12" y="15" width="9" height="5" stroke="currentColor" stroke-width="1.7" fill="none"/>`,
     clapper: `<rect x="3.5" y="10.5" width="17" height="9" rx="1.2" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M3.5 10.5 4.2 6.3a1 1 0 0 1 1.15-.82l14.1 2.35a1 1 0 0 1 .83 1.14l-.5 3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><path d="m7.3 6 2.2 4M12.7 6.9l2.2 4" stroke="currentColor" stroke-width="1.5"/>`,
     doc: `<path d="M6.5 2.5h8l4 4v14.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><path d="M14 2.5V7h4.3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><path d="M8.3 12h7.2M8.3 15.2h7.2M8.3 18.4h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`,
-    gear: `<circle cx="12" cy="12" r="3.1" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 3.5v2.3M12 18.2v2.3M20.5 12h-2.3M5.8 12H3.5M17.8 6.2l-1.6 1.6M7.8 16.2l-1.6 1.6M17.8 17.8l-1.6-1.6M7.8 7.8 6.2 6.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
+    // NUEVO (pedido del usuario -- "el botón de config es un sol, no una
+    // tuerca"): la versión anterior era un círculo chico + 8 líneas finas
+    // radiales -- estructuralmente CASI IDÉNTICA a wxSun (círculo + 8 rayos
+    // radiales), solo con círculo más chico y rayos más cortos. A este
+    // tamaño (18-22px) esa diferencia no se nota y de verdad se lee como
+    // un sol, no un engranaje -- un engranaje necesita dientes RECTOS
+    // (rectángulos), no rayos finos, para distinguirse de un sunburst.
+    // Ahora es un anillo (el cuerpo/agujero del engranaje) con 8 dientes
+    // rectangulares alrededor, forma mucho más reconocible como "tuerca".
+    gear: `<circle cx="12" cy="12" r="4.6" stroke="currentColor" stroke-width="1.6" fill="none"/><g fill="currentColor"><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7"/><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7" transform="rotate(45 12 12)"/><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7" transform="rotate(90 12 12)"/><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7" transform="rotate(135 12 12)"/><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7" transform="rotate(180 12 12)"/><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7" transform="rotate(225 12 12)"/><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7" transform="rotate(270 12 12)"/><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7" transform="rotate(315 12 12)"/></g>`,
     chevronLeft: `<path d="M14.5 5 8 12l6.5 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
     chevronRight: `<path d="M9.5 5 16 12l-6.5 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
     close: `<path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>`,
@@ -131,6 +140,14 @@ const GLYPHS = {
     // play/pausa para la fila de un mp3 ya bajado.
     play: `<path d="M7 4.5v15l13-7.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="currentColor"/>`,
     pause: `<rect x="6.5" y="4.5" width="4" height="15" rx="1" fill="currentColor"/><rect x="13.5" y="4.5" width="4" height="15" rx="1" fill="currentColor"/>`,
+    // NUEVO (pedido del usuario -- cada pestaña de pilar necesita un ícono
+    // PROPIO, no el mismo que la primera herramienta de esa categoría --
+    // ver PILLAR_INFO en main.js, antes usaba "sync"/"clock"/"palette" por
+    // coincidencia porque son los mismos glifos que syncmanager/reloj/
+    // paletacolores). "sparkle" ya existía en el set (sin ningún
+    // TOOL_GLYPH que lo use) y se reusa tal cual para Suite Creativa.
+    pillarConnect: `<circle cx="7" cy="7.5" r="3.3" stroke="currentColor" stroke-width="1.8" fill="none"/><circle cx="17" cy="16.5" r="3.3" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M9.4 9.9l5.2 5.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
+    pillarProduct: `<path d="M13.2 2.5 5 14h5.6l-1.3 7.5L18 10h-5.6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/>`,
 };
 
 /** SVG completo (sin badge) de un glifo -- currentColor, para usar suelto

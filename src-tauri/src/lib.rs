@@ -173,6 +173,7 @@ pub fn run() {
             syncthing::sync_get_folders,
             syncthing::sync_get_folder_status,
             syncthing::sync_set_folder_paused,
+            syncthing::sync_set_all_paused,
             syncthing::sync_rescan_folder,
             syncthing::sync_pending_folders,
             syncthing::sync_accept_pending_folder,

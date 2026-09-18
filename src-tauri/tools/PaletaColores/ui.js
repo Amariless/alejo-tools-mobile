@@ -46,6 +46,13 @@ registerRenderer("paletacolores", {
             originKey: null, // bucket.key del color cuyo origen se está mostrando, o null
         };
 
+        // NUEVO (pedido del usuario -- acción rápida "Abrir cámara" desde
+        // la tarjeta de esta tool en el Hub): consumePendingToolIntent()
+        // (ver main.js) devuelve "camera" una sola vez si se entró acá
+        // desde ese botón -- abre el selector de cámara solo, sin que el
+        // usuario tenga que tocar "Tomar foto" de nuevo.
+        let autoOpenCamera = ctx.consumePendingToolIntent?.() === "camera";
+
         const BITS = 4; // 16 niveles por canal -- mismo valor usado al extraer y al resaltar origen
         const SHIFT = 8 - BITS;
         function bucketKey(r, g, b) {
@@ -184,6 +191,7 @@ registerRenderer("paletacolores", {
 
             pickRow.append(cameraInp, cameraBtn, galleryInp, galleryBtn);
             root.appendChild(pickRow);
+            if (autoOpenCamera) { autoOpenCamera = false; setTimeout(() => cameraInp.click(), 0); }
 
             if (!S.imageUrl) {
                 root.appendChild(el("p", { className: "pc-empty", textContent: "Tomá o elegí una foto para sacarle una paleta de colores." }));

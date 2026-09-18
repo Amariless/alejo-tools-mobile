@@ -30,6 +30,10 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* NUEVO: deslizar para cambiar de pestaña (ver ctx.enableTabSwipe en
+     main.js) -- pan-y deja el scroll vertical nativo intacto y solo cede
+     el gesto horizontal al detector de swipe en JS. */
+  touch-action: pan-y;
 }
 
 .pm-root {
