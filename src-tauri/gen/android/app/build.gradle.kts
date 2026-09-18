@@ -1,3 +1,4 @@
+import java.io.FileInputStream
 import java.util.Properties
 
 plugins {
@@ -13,6 +14,30 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// NUEVO (bug real, encontrado en vivo -- "actualizar desde la app dice
+// 'no se instaló la app'"): este archivo (generado por `tauri android
+// init`, nunca tocado hasta ahora) jamás definió un signingConfig propio
+// -- ni "debug" ni "release" leían keystore.properties para nada, así que
+// el paso "Configurar firma de Android" del CI (android-release.yml, que
+// SÍ escribe gen/android/keystore.properties con los secrets del repo)
+// escribía un archivo que Gradle nunca llegaba a mirar. El build type que
+// de verdad se publica es "debug" (`tauri android build --debug --apk`,
+// ver el comentario en android-release.yml), así que sin este bloque cada
+// variante debug se firmaba con el keystore de debug EFÍMERO que Android
+// Gradle Plugin autogenera solo si no existe ~/.android/debug.keystore --
+// en un runner de GitHub Actions (una VM nueva en cada corrida, sin ese
+// archivo cacheado) eso significa una clave de firma DISTINTA en CADA
+// build. Confirmado extrayendo y comparando a mano el certificado real
+// (APK Signing Block v2) de 4 releases publicados: los 4 tenían firmas
+// distintas entre sí -- por eso Android rechazaba instalar cualquiera de
+// ellos "como actualización" de la anterior sin desinstalar primero.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        load(FileInputStream(keystorePropertiesFile))
+    }
+}
+
 android {
     compileSdk = 36
     namespace = "com.alejo.toolsmobile"
@@ -24,12 +49,28 @@ android {
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["password"] as String
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["password"] as String
+            }
+        }
+    }
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true
             isMinifyEnabled = false
+            // El build que de verdad se publica es este (debug, ver más
+            // arriba) -- sin esto, firmado con el keystore efímero de
+            // Android Gradle Plugin en vez del real.
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             packaging {                jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
                 jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")
                 jniLibs.keepDebugSymbols.add("*/x86/*.so")
@@ -38,6 +79,9 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = true
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
