@@ -25,8 +25,13 @@ use tauri::{AppHandle, Manager};
 
 static HTTP_ST: OnceLock<reqwest::Client> = OnceLock::new();
 
+// NUEVO (bug real reportado -- "invalid peer certificate: UnknownIssuer"):
+// Syncthing sirve su API local con un certificado autofirmado por default
+// en versiones recientes -- ver el comentario grande en
+// tls::client_trusting_loopback sobre por qué es seguro confiar en eso acá
+// (y solo acá) sin aflojar la verificación del resto de la app.
 fn http() -> &'static reqwest::Client {
-    HTTP_ST.get_or_init(|| crate::tls::client("AlejoToolsMobile-SyncManager/1.0", 15))
+    HTTP_ST.get_or_init(|| crate::tls::client_trusting_loopback("AlejoToolsMobile-SyncManager/1.0", 15))
 }
 
 /// reqwest::Error a secas solo muestra "error sending request for url
