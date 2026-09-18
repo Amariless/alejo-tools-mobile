@@ -13,11 +13,21 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
+// NUEVO (pedido del usuario -- también poder cargar ingresos): "kind" con
+// default vía serde para que expenses.json ya guardado en el dispositivo
+// (todo sin este campo) siga leyéndose bien -- cada ítem viejo se
+// interpreta como "expense" (su significado real hasta ahora), sin migrar
+// nada a mano.
+fn default_kind() -> String { "expense".to_string() }
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Expense {
     pub id: String,
     pub amount: f64,
+    /// "expense" | "income".
+    #[serde(default = "default_kind")]
+    pub kind: String,
     pub category: String,
     pub note: String,
     /// "YYYY-MM-DD" -- string simple en vez de un tipo de fecha real: no
@@ -95,6 +105,7 @@ pub fn expenses_save(
     app: AppHandle,
     id: Option<String>,
     amount: f64,
+    kind: String,
     category: String,
     note: String,
     date: String,
@@ -102,21 +113,23 @@ pub fn expenses_save(
     if !amount.is_finite() || amount <= 0.0 {
         return Err("El monto tiene que ser un número mayor que cero.".to_string());
     }
+    let kind = if kind == "income" { "income".to_string() } else { "expense".to_string() };
     let mut data = read_all(&app)?;
     let expense = if let Some(id) = id.filter(|id| !id.is_empty()) {
         if let Some(existing) = data.items.iter_mut().find(|e| e.id == id) {
             existing.amount = amount;
+            existing.kind = kind;
             existing.category = category;
             existing.note = note;
             existing.date = date;
             existing.clone()
         } else {
-            let e = Expense { id, amount, category, note, date, created_at: now_millis() };
+            let e = Expense { id, amount, kind, category, note, date, created_at: now_millis() };
             data.items.push(e.clone());
             e
         }
     } else {
-        let e = Expense { id: next_id(), amount, category, note, date, created_at: now_millis() };
+        let e = Expense { id: next_id(), amount, kind, category, note, date, created_at: now_millis() };
         data.items.push(e.clone());
         e
     };

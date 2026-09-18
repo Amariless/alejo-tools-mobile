@@ -23,7 +23,9 @@
 }
 .gs-month-label { font-weight: 700; font-size: 1rem; }
 
-.gs-new-btn { width: 100%; }
+.gs-new-row { display: flex; gap: 8px; }
+.gs-new-btn { flex: 1; }
+.gs-new-btn--income { background: var(--success, #2a9d8f); border-color: transparent; color: white; }
 
 .gs-empty {
   margin: 0;
@@ -44,6 +46,18 @@
 }
 .gs-total-label { font-size: .74rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
 .gs-total-amount { font-size: 2rem; font-weight: 800; }
+
+/* NUEVO (pedido del usuario -- estadísticas generales, no solo el total):
+   ingresos/gastos lado a lado + balance debajo. */
+.gs-totals-row { display: flex; gap: 16px; }
+.gs-total-block { flex: 1; }
+.gs-total-block--income .gs-total-amount { color: var(--success, #2a9d8f); }
+.gs-total-block--expense .gs-total-amount { color: var(--error); }
+.gs-balance { font-size: .9rem; font-weight: 700; }
+.gs-balance--negative { color: var(--error); }
+
+.gs-breakdown-box + .gs-breakdown-box { margin-top: 4px; }
+.gs-breakdown-title { font-size: .8rem; font-weight: 700; margin-bottom: 6px; }
 
 .gs-currency-row { display: flex; }
 .gs-currency-btn {
@@ -98,10 +112,23 @@
 .gs-item-cat { font-weight: 600; font-size: .86rem; display: flex; align-items: center; gap: 6px; }
 .gs-item-note { font-size: .74rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gs-item-amount { font-weight: 700; font-size: .88rem; white-space: nowrap; }
+.gs-item-amount--income { color: var(--success, #2a9d8f); }
 .gs-item-delete { background: transparent; border: none; padding: 4px; color: var(--text-muted); display: flex; align-items: center; justify-content: center; }
 .gs-item-delete:active { color: var(--error); }
 
 .gs-form { display: flex; flex-direction: column; gap: 10px; }
+.gs-kind-row { display: flex; gap: 8px; }
+.gs-kind-btn {
+  flex: 1;
+  padding: 9px 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  color: var(--text-muted);
+  font-size: .85rem;
+  font-weight: 600;
+}
+.gs-kind-btn--active { background: var(--accent, #0ea5e9); border-color: transparent; color: white; }
 .gs-form select {
   width: 100%;
   padding: 8px 10px;
