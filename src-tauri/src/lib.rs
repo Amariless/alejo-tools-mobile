@@ -262,6 +262,7 @@ pub fn run() {
             epub::book_close,
             epub::book_get_progress,
             epub::book_set_progress,
+            epub::book_set_currently_reading,
             epub::book_get_preview,
             epub::book_delete_file,
             epub::book_rename_file,

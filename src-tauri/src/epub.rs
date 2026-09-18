@@ -470,6 +470,13 @@ pub struct BookProgress {
     pub chapter_index: usize,
     pub scroll_fraction: f64,
     pub updated_at: i64,
+    /// NUEVO (pedido del usuario -- marcar un libro como "Estoy leyendo"
+    /// para verlo primero en la lista y en el widget del Hub). `#[serde
+    /// (default)]` para que el book_progress.json ya guardado en el
+    /// dispositivo (sin este campo) siga leyéndose bien -- todo lo viejo
+    /// se interpreta como `false`.
+    #[serde(default)]
+    pub currently_reading: bool,
 }
 
 fn progress_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -510,6 +517,26 @@ pub fn book_set_progress(app: AppHandle, path: String, chapter_index: usize, scr
     let _guard = PROGRESS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = read_all_progress(&app);
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
-    all.insert(path, BookProgress { chapter_index, scroll_fraction, updated_at: now });
+    // Preserva currently_reading si ya había progreso guardado para este
+    // libro -- guardar el avance de lectura no debería desmarcarlo.
+    let currently_reading = all.get(&path).map(|p| p.currently_reading).unwrap_or(false);
+    all.insert(path, BookProgress { chapter_index, scroll_fraction, updated_at: now, currently_reading });
+    write_all_progress(&app, &all)
+}
+
+/// Marca (o desmarca) un libro como "Estoy leyendo". Solo puede haber uno
+/// marcado a la vez -- pedido explícito del usuario, para que el widget del
+/// Hub (Fase 1) pueda mostrarlo sin ambigüedad -- así que marcar uno nuevo
+/// desmarca cualquier otro.
+#[tauri::command]
+pub fn book_set_currently_reading(app: AppHandle, path: String, value: bool) -> Result<(), String> {
+    let _guard = PROGRESS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut all = read_all_progress(&app);
+    if value {
+        for prog in all.values_mut() { prog.currently_reading = false; }
+    }
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+    let entry = all.entry(path).or_insert_with(|| BookProgress { chapter_index: 0, scroll_fraction: 0.0, updated_at: now, currently_reading: false });
+    entry.currently_reading = value;
     write_all_progress(&app, &all)
 }
