@@ -219,6 +219,44 @@ object YtDlpBridge {
         return jobId
     }
 
+    /// NUEVO (pedido del usuario -- poder escuchar una preview antes de
+    /// decidir descargar): variante corta de startDownload -- baja SOLO
+    /// los primeros ~20s ("--download-sections", ya soportado por el
+    /// yt-dlp embebido) en vez de la canción entera, así no se gasta
+    /// tiempo/datos del usuario en algo que puede terminar descartando. Sin
+    /// callback de progreso (a diferencia de startDownload): 20s de audio
+    /// baja lo bastante rápido como para no necesitar una barra propia.
+    @JvmStatic
+    fun startPreviewDownload(context: Context, url: String, outputPath: String): String {
+        val jobId = UUID.randomUUID().toString()
+        val appContext = context.applicationContext
+        Thread {
+            var result = errorJson(IllegalStateException("Fallo desconocido al generar la preview"))
+            try {
+                result = try {
+                    ensureInit(appContext)
+                    val request = YoutubeDLRequest(url)
+                    request.addOption("--no-playlist")
+                    request.addOption("-x")
+                    request.addOption("--audio-format", "mp3")
+                    request.addOption("--audio-quality", "128K")
+                    request.addOption("--download-sections", "*0-20")
+                    request.addOption("-o", outputPath)
+                    YoutubeDL.getInstance().execute(request, jobId, null)
+                    val j = JSONObject()
+                    j.put("ok", true)
+                    j.put("path", outputPath)
+                    j.toString()
+                } catch (e: Throwable) {
+                    errorJson(e)
+                }
+            } finally {
+                jobs[jobId] = result
+            }
+        }.start()
+        return jobId
+    }
+
     /// Sondea el resultado de un job. Mientras sigue corriendo devuelve
     /// {"status":"running","progress":..,"eta":..} (progress/eta solo
     /// presentes para descargas, no para fetchInfo) -- una vez que hay
