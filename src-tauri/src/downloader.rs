@@ -153,6 +153,27 @@ fn extract_artist_from_channel(channel: &str) -> Option<String> {
     TOPIC_CHANNEL.captures(channel.trim()).map(|c| c[1].trim().to_string())
 }
 
+// NUEVO (pedido del usuario -- "el artista sigue sin ser inteligente, solo
+// agarra el nombre de la cuenta"): la mayoría de los videos de YouTube que
+// NO son de un canal "- Topic" ni traen metadata artist/creator igual
+// siguen la convención dominante "Artista - Canción" en el título -- una
+// señal bastante más confiable que el nombre del canal (que muchas veces
+// es un canal de terceros sin relación real con el artista, ej. "Reggaeton
+// Hits 2024"). Se intenta ANTES de caer al heurístico basado en uploader.
+fn split_title_artist(raw_title: &str) -> Option<String> {
+    let normalized = ALT_SEP.replace_all(&normalize_chars(raw_title), " - ").to_string();
+    let (left, right) = normalized.split_once(" - ")?;
+    let artist = left.trim();
+    let rest = right.trim();
+    if artist.chars().count() < 2 || artist.chars().count() > 60 || rest.is_empty() {
+        return None;
+    }
+    if NOISE.is_match(artist) {
+        return None;
+    }
+    Some(primary_artist(artist))
+}
+
 fn is_emoji_or_symbol(c: char) -> bool {
     let cp = c as u32;
     (0x1F300..=0x1FAFF).contains(&cp) || (0x2600..=0x27BF).contains(&cp) || (0xFE00..=0xFE0F).contains(&cp)
@@ -669,14 +690,14 @@ fn track_info_from_json(result: &serde_json::Value, fallback_url: &str) -> Track
         .filter(|s| !s.is_empty());
     let artist_name = match explicit_artist {
         Some(a) => a,
-        None => {
+        None => split_title_artist(&raw_title).unwrap_or_else(|| {
             let mut a = primary_artist(&uploader);
             a = CHANNEL_SUFFIX.replace(&a, "").trim().to_string();
             if let Some(caps) = TOPIC_CHANNEL.captures(&a) {
                 a = caps[1].trim().to_string();
             }
             a
-        }
+        }),
     };
 
     let bare_title = clean_title(&raw_title, "");

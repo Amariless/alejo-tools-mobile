@@ -95,12 +95,63 @@ fn require_config(app: &AppHandle) -> Result<SyncConfig, String> {
     Ok(cfg)
 }
 
+fn flipped_scheme_host(host: &str) -> Option<String> {
+    if let Some(rest) = host.strip_prefix("http://") {
+        Some(format!("https://{rest}"))
+    } else if let Some(rest) = host.strip_prefix("https://") {
+        Some(format!("http://{rest}"))
+    } else {
+        None
+    }
+}
+
+// NUEVO (bug real reportado -- "invalid peer certificate: UnknownIssuer"
+// seguía apareciendo tras el fix de loopback en tls.rs): ese fix soluciona
+// un certificado autofirmado, pero asume que ya estamos hablando HTTPS --
+// default_host() en cambio asume "http://" a secas, y NO hay forma de
+// saber desde acá si la instalación de Syncthing del usuario tiene "Usar
+// HTTPS para la interfaz" activada (versiones recientes de
+// Syncthing-Android lo traen activado por default). Un socket que solo
+// habla TLS no puede "redirigir" a un cliente que le manda texto plano --
+// eso explica que el error observado sea justo el de validación de
+// certificado, no un simple rechazo de conexión. En vez de obligar al
+// usuario a editar el host a mano (dato que ni sabía que existía, si solo
+// cargó el API Key), cuando el esquema configurado falla se reintenta UNA
+// vez con el otro esquema sobre el mismo host:puerto -- si funciona, se
+// persiste en sync_config.json para no repetir la conexión fallida en
+// cada llamada futura.
+async fn send_with_fallback(
+    app: &AppHandle,
+    cfg: &SyncConfig,
+    method: reqwest::Method,
+    path: &str,
+    body: Option<&serde_json::Value>,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let build = |host: &str| {
+        let mut req = http().request(method.clone(), format!("{host}{path}")).header("X-API-Key", &cfg.api_key);
+        if let Some(b) = body {
+            req = req.json(b);
+        }
+        req
+    };
+    match build(&cfg.host).send().await {
+        Ok(resp) => Ok(resp),
+        Err(first_err) => {
+            let Some(alt_host) = flipped_scheme_host(&cfg.host) else { return Err(first_err) };
+            match build(&alt_host).send().await {
+                Ok(resp) => {
+                    let _ = sync_set_config(app.clone(), alt_host, cfg.api_key.clone());
+                    Ok(resp)
+                }
+                Err(_) => Err(first_err),
+            }
+        }
+    }
+}
+
 async fn st_get(app: &AppHandle, path: &str) -> Result<serde_json::Value, String> {
     let cfg = require_config(app)?;
-    let resp = http()
-        .get(format!("{}{path}", cfg.host))
-        .header("X-API-Key", &cfg.api_key)
-        .send()
+    let resp = send_with_fallback(app, &cfg, reqwest::Method::GET, path, None)
         .await
         .map_err(|e| format!("No se pudo conectar con Syncthing: {}", describe_reqwest_err(&e)))?;
     if !resp.status().is_success() {
@@ -111,11 +162,7 @@ async fn st_get(app: &AppHandle, path: &str) -> Result<serde_json::Value, String
 
 async fn st_put(app: &AppHandle, path: &str, body: &serde_json::Value) -> Result<(), String> {
     let cfg = require_config(app)?;
-    let resp = http()
-        .put(format!("{}{path}", cfg.host))
-        .header("X-API-Key", &cfg.api_key)
-        .json(body)
-        .send()
+    let resp = send_with_fallback(app, &cfg, reqwest::Method::PUT, path, Some(body))
         .await
         .map_err(|e| format!("No se pudo conectar con Syncthing: {}", describe_reqwest_err(&e)))?;
     if !resp.status().is_success() {
@@ -127,10 +174,7 @@ async fn st_put(app: &AppHandle, path: &str, body: &serde_json::Value) -> Result
 
 async fn st_post(app: &AppHandle, path: &str) -> Result<(), String> {
     let cfg = require_config(app)?;
-    let resp = http()
-        .post(format!("{}{path}", cfg.host))
-        .header("X-API-Key", &cfg.api_key)
-        .send()
+    let resp = send_with_fallback(app, &cfg, reqwest::Method::POST, path, None)
         .await
         .map_err(|e| format!("No se pudo conectar con Syncthing: {}", describe_reqwest_err(&e)))?;
     if !resp.status().is_success() {
