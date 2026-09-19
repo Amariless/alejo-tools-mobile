@@ -105,6 +105,36 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.alejo_tools_mobile" />
 
+        <!-- NUEVO (pedido del usuario, compartir una canción desde
+             YouTube/el navegador/etc. directo "con Alejo Tools", estilo
+             Snaptube): un activity-alias (no una Activity nueva) que
+             apunta a la MISMA MainActivity, reusa el proceso Tauri ya
+             corriendo y todo downloader.rs tal cual (limpieza de
+             título/artista, carpeta configurada), en vez de reimplementar
+             la descarga en Kotlin puro con riesgo de que las dos versiones
+             diverjan. captureShareIntent() en MainActivity.kt (llamado
+             desde onCreate Y onNewIntent, mismo patrón que
+             capturePdfIntent) es quien lee el texto compartido.
+             mimeType="text/plain" porque así arma el Intent la mayoría de
+             las apps al compartir un link (YouTube, navegadores), no se
+             declara BROWSABLE a propósito: esto NO debe ofrecerse como
+             manejador de enlaces tocados directo, solo como destino de
+             "Compartir". Tema de diálogo propio (ver themes.xml), límite
+             honesto documentado ahí sobre por qué no se puede garantizar
+             que Android lo respete en todos los lanzadores. -->
+        <activity-alias
+            android:name=".ShareReceiverActivity"
+            android:targetActivity=".MainActivity"
+            android:label="@string/share_activity_title"
+            android:theme="@style/Theme.alejo_tools_mobile.Share"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity-alias>
+
         <provider
           android:name="androidx.core.content.FileProvider"
           android:authorities="${applicationId}.fileprovider"

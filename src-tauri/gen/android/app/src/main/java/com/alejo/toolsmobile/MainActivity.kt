@@ -103,6 +103,7 @@ class MainActivity : TauriActivity() {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     capturePdfIntent(intent)
+    captureShareIntent(intent)
   }
 
   override fun onSaveInstanceState(outState: Bundle) {
@@ -129,11 +130,25 @@ class MainActivity : TauriActivity() {
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     capturePdfIntent(intent)
+    captureShareIntent(intent)
   }
 
   private fun capturePdfIntent(intent: Intent?) {
     if (intent?.action == Intent.ACTION_VIEW && intent.data != null) {
       PdfBridge.pendingUri = intent.data.toString()
+    }
+  }
+
+  /// NUEVO (compartir a la app, estilo Snaptube): captura el texto que
+  /// llega por ACTION_SEND desde otra app (YouTube, un navegador, etc. --
+  /// ver el activity-alias ShareReceiverActivity en AndroidManifest.xml).
+  /// Mismo patrón "consume-once" que capturePdfIntent -- ShareBridge.kt
+  /// guarda el valor, downloader.rs (dl_take_pending_share_text) lo
+  /// consume una sola vez del lado Rust.
+  private fun captureShareIntent(intent: Intent?) {
+    if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+      val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+      if (!text.isNullOrBlank()) ShareBridge.pendingText = text
     }
   }
 

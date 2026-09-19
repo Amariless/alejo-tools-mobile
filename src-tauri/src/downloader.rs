@@ -194,6 +194,18 @@ fn fmt_dur(secs: i64) -> String {
     if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m}:{s:02}") }
 }
 
+// NUEVO (compartir a la app, estilo Snaptube): el texto que manda
+// ACTION_SEND normalmente trae título + link juntos (ej. "Mirá este tema:
+// https://youtu.be/xxx vía @canal"), no una URL sola -- se extrae la
+// primera URL http(s) en vez de asumir que el texto entero es una URL.
+static URL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"https?://\S+").unwrap());
+
+fn extract_first_url(text: &str) -> Option<String> {
+    URL_RE
+        .find(text)
+        .map(|m| m.as_str().trim_end_matches(['.', ',', ')', ']', '"', '\'']).to_string())
+}
+
 fn detect_platform(url: &str) -> String {
     let u = url.to_lowercase();
     if u.contains("music.youtube.com") { return "YouTube Music".into(); }
@@ -515,6 +527,47 @@ async fn jni_poll(app: &AppHandle, job_id: &str) -> Result<serde_json::Value, St
     serde_json::from_str(&raw).map_err(|e| format!("Respuesta inesperada de YtDlpBridge: {e}"))
 }
 
+/// NUEVO (compartir a la app, estilo Snaptube): lee (y borra del lado
+/// Kotlin) el texto pendiente de un Intent ACTION_SEND -- ver
+/// ShareBridge.kt/MainActivity.kt. Mismo mecanismo "consume-once" que
+/// PdfBridge.takePendingUri (pdf.rs), pero contra una clase distinta.
+#[cfg(target_os = "android")]
+async fn jni_take_pending_share_text(app: &AppHandle) -> Result<String, String> {
+    use jni::objects::JValue;
+    use tauri::Manager;
+
+    let window = app.get_webview_window("main").ok_or("No se encontró la ventana principal")?;
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
+
+    window
+        .with_webview(move |webview| {
+            let handle = webview.jni_handle();
+            handle.exec(move |env, activity, _webview| {
+                let result = (|| -> Result<String, String> {
+                    let class = wry::prelude::find_class(env, activity, "com.alejo.toolsmobile.ShareBridge".to_string())
+                        .map_err(|e| format!("No se encontró ShareBridge: {e}"))?;
+                    let text_obj = env
+                        .call_static_method(class, "takePendingText", "()Ljava/lang/String;", &[] as &[JValue])
+                        .and_then(|v| v.l())
+                        .map_err(|e| format!("No se pudo consultar el texto compartido: {e}"))?;
+                    if text_obj.is_null() {
+                        return Ok(String::new());
+                    }
+                    let text: String = env.get_string(&text_obj.into()).map_err(|e| e.to_string())?.into();
+                    Ok(text)
+                })();
+                let _ = tx.send(result);
+            });
+        })
+        .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
+
+    match tokio::time::timeout(std::time::Duration::from_secs(10), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("No se obtuvo respuesta".to_string()),
+        Err(_) => Err("La consulta tardó demasiado".to_string()),
+    }
+}
+
 #[cfg(not(target_os = "android"))]
 async fn jni_start_fetch_info(_app: &AppHandle, _url: &str) -> Result<String, String> {
     Err("Descargar Música solo está disponible en Android".to_string())
@@ -533,6 +586,10 @@ async fn jni_start_preview(_app: &AppHandle, _url: &str, _out_path: &str) -> Res
 }
 #[cfg(not(target_os = "android"))]
 async fn jni_poll(_app: &AppHandle, _job_id: &str) -> Result<serde_json::Value, String> {
+    Err("Descargar Música solo está disponible en Android".to_string())
+}
+#[cfg(not(target_os = "android"))]
+async fn jni_take_pending_share_text(_app: &AppHandle) -> Result<String, String> {
     Err("Descargar Música solo está disponible en Android".to_string())
 }
 
@@ -892,4 +949,20 @@ pub async fn dl_preview(app: AppHandle, url: String) -> Result<String, String> {
         return Err(format!("No se pudo generar la preview: {err}"));
     }
     Ok(out_path_str)
+}
+
+/// NUEVO (pedido del usuario -- compartir una canción DESDE YouTube/otro
+/// sitio y que la app la reciba, estilo Snaptube): consume el texto
+/// pendiente de un Intent ACTION_SEND (ver ShareBridge.kt/MainActivity.kt,
+/// activity-alias ShareReceiverActivity en AndroidManifest.xml) y le
+/// extrae la primera URL http(s) -- el texto de "Compartir" trae título y
+/// link juntos, no una URL sola. Vacío ("") si no hay nada pendiente,
+/// mismo contrato que pdf_take_pending_uri.
+#[tauri::command]
+pub async fn dl_take_pending_share_text(app: AppHandle) -> Result<String, String> {
+    let text = jni_take_pending_share_text(&app).await?;
+    if text.is_empty() {
+        return Ok(String::new());
+    }
+    Ok(extract_first_url(&text).unwrap_or_default())
 }

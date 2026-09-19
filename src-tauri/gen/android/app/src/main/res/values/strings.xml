@@ -1,4 +1,10 @@
 <resources>
     <string name="app_name">"Alejo Tools"</string>
     <string name="main_activity_title">"Alejo Tools"</string>
+    <!-- NUEVO (compartir a la app, estilo Snaptube): nombre que Android
+         muestra en la hoja de "Compartir" de otras apps (YouTube, el
+         navegador, etc.) para el alias de ShareReceiverActivity, ver
+         AndroidManifest.xml. Distinto del nombre genérico de la app para
+         que el usuario entienda qué va a pasar al elegirlo ahí. -->
+    <string name="share_activity_title">"Descargar con Alejo Tools"</string>
 </resources>

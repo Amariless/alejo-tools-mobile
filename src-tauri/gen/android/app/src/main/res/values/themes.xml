@@ -3,4 +3,20 @@
     <style name="Theme.alejo_tools_mobile" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <!-- Customize your theme here. -->
     </style>
+
+    <!-- NUEVO (compartir a la app, estilo Snaptube): tema de diálogo para
+         el activity-alias de ACTION_SEND (ver AndroidManifest.xml).
+         MainActivity/el proceso Tauri arrancan igual (mismo launchMode
+         "singleTask"), pero con este tema Android debería mostrar la
+         ventana angosta como un diálogo flotante en vez de a pantalla
+         completa. Límite honesto: no todos los lanzadores/versiones de
+         Android respetan Theme.Dialog para una Activity que además pide
+         edge-to-edge (ver enableEdgeToEdge() en MainActivity.kt), puede
+         terminar viéndose fullscreen en algunos dispositivos, a confirmar
+         en el build real. -->
+    <style name="Theme.alejo_tools_mobile.Share" parent="Theme.MaterialComponents.DayNight.Dialog">
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowMinWidthMajor">85%</item>
+        <item name="android:windowMinWidthMinor">85%</item>
+    </style>
 </resources>

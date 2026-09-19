@@ -25,6 +25,13 @@
 //     una fila (sin problema de "taint" de canvas acá -- es audio, no
 //     píxeles -- así que convertFileSrc alcanza, igual que CreadorTexturas
 //     lo usa para mostrar imágenes ya guardadas).
+// NUEVO (compartir a la app, estilo Snaptube): igual patrón que
+// pendingPdfUriFromDeepLink en LectorDocs -- checkDeepLink() corre ANTES
+// de que render() monte S (que es local a initNormal(), no de módulo), así
+// que el valor tiene que vivir acá afuera hasta que initNormal() lo
+// consuma.
+let pendingShareUrlFromDeepLink = null;
+
 registerRenderer("descargarmusica", {
     render(tool, area) {
         const root = el("div", { className: "dl-root" });
@@ -82,6 +89,19 @@ registerRenderer("descargarmusica", {
             menu: null,         // { file } -- hoja de acciones abierta
             renameDialog: null, // { file }
         };
+
+        // NUEVO (compartir a la app, estilo Snaptube): si checkDeepLink()
+        // dejó una URL pendiente, arrancar directo en modo "link" con esa
+        // URL ya pegada -- ver checkDeepLink más abajo y checkDeepLinks()
+        // en main.js, que es quien llama a render() para esto.
+        let deepLinkUrl = null;
+        if (pendingShareUrlFromDeepLink) {
+            deepLinkUrl = pendingShareUrlFromDeepLink;
+            pendingShareUrlFromDeepLink = null;
+            S.tab = "buscar";
+            S.mode = "link";
+            S.url = deepLinkUrl;
+        }
 
         function fmtEta(secs) {
             if (secs == null || secs < 0) return "";
@@ -559,8 +579,24 @@ registerRenderer("descargarmusica", {
         }
 
         renderView();
+        if (deepLinkUrl) fetchInfo(); // "Compartir" ya dejó la URL pegada -- arrancar la búsqueda de info sola
         }
     },
     onOutput() {},
     onDone() {},
+    // NUEVO (compartir a la app, estilo Snaptube): mismo mecanismo genérico
+    // que ya usa LectorDocs para "Abrir con..." -- checkDeepLinks() en
+    // main.js llama a esto por cada tool al arrancar (o al retomar la app);
+    // si hay texto pendiente de un ACTION_SEND, se guarda y se devuelve
+    // true para que main.js abra esta herramienta directo.
+    async checkDeepLink() {
+        try {
+            const url = await invoke("dl_take_pending_share_text");
+            if (url) {
+                pendingShareUrlFromDeepLink = url;
+                return true;
+            }
+        } catch (e) { /* no-op -- no es Android, o nada pendiente */ }
+        return false;
+    },
 });
