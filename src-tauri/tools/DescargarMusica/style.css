@@ -43,6 +43,24 @@
   text-align: center;
 }
 
+/* NUEVO (pedido del usuario -- pedir carpeta antes de dejar usar la
+   herramienta, en vez de un default hardcodeado sin elegir): pantalla
+   corta que reemplaza el flujo normal mientras dl_get_config().folder
+   venga vacío. */
+.dl-folder-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin: 48px auto;
+  max-width: 320px;
+  text-align: center;
+}
+.dl-folder-gate-txt {
+  color: var(--text-muted);
+  font-size: .92rem;
+}
+
 /* ── Listas (resultados de búsqueda y descargas guardadas) -- mismo
    patrón visual que .ld-list/.ld-item de LectorDocs. ── */
 .dl-list { display: flex; flex-direction: column; gap: 8px; }

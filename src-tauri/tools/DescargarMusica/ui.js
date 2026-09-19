@@ -30,6 +30,33 @@ registerRenderer("descargarmusica", {
         const root = el("div", { className: "dl-root" });
         area.appendChild(root);
 
+        // NUEVO (pedido del usuario -- no arrancar con una carpeta elegida
+        // sin que el usuario lo haya decidido): dl_get_config ya no trae un
+        // default hardcodeado (ver downloader.rs) -- si folder viene vacío,
+        // se pide elegir carpeta ANTES de montar el flujo normal, en vez de
+        // dejar descargar a un lugar que el usuario nunca eligió. Misma
+        // key ("music") que ya usa Configuración, así que elegirla desde
+        // cualquiera de los dos lados queda consistente en el otro.
+        invoke("dl_get_config").then(cfg => {
+            if (cfg.folder) initNormal(); else renderFolderGate();
+        });
+
+        function renderFolderGate() {
+            root.innerHTML = "";
+            const gate = el("div", { className: "dl-folder-gate" });
+            gate.appendChild(el("p", { className: "dl-folder-gate-txt", textContent: "Elegí dónde guardar la música que descargues." }));
+            const btn = el("button", { className: "primary", textContent: "Elegir carpeta" });
+            btn.onclick = async () => {
+                const path = await ctx.pickFolder("music");
+                if (!path) return;
+                await invoke("dl_set_config", { folder: path });
+                initNormal();
+            };
+            gate.appendChild(btn);
+            root.appendChild(gate);
+        }
+
+        function initNormal() {
         const S = {
             tab: "buscar", // buscar | descargas
             mode: "search", // search | link -- solo aplica dentro de "buscar"
@@ -482,6 +509,7 @@ registerRenderer("descargarmusica", {
         }
 
         renderView();
+        }
     },
     onOutput() {},
     onDone() {},

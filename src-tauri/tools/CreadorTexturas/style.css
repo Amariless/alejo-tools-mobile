@@ -8,6 +8,24 @@
   gap: 14px;
 }
 
+/* NUEVO (pedido del usuario -- pedir carpeta antes de dejar usar la
+   herramienta, en vez de un default hardcodeado sin elegir): pantalla
+   corta que reemplaza el flujo normal mientras textures_get_config().folder
+   venga vacío. */
+.tx-folder-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin: 48px auto;
+  max-width: 320px;
+  text-align: center;
+}
+.tx-folder-gate-txt {
+  color: var(--text-muted);
+  font-size: .92rem;
+}
+
 /* ── Pestañas ── */
 .tx-tabs { display: flex; gap: 6px; }
 .tx-tab {
