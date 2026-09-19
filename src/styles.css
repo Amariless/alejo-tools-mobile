@@ -313,6 +313,20 @@ body {
   width: 30px; height: 30px; border-radius: 9px;
   display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
 }
+/* NUEVO (favoritos elegidos por el usuario): estrella chica flotando en la
+   esquina de una tarjeta compacta del Hub -- position:absolute porque
+   .hub-card no reserva espacio propio para esto (a diferencia de
+   .hub-card-actions, que sí ocupa una fila entera). */
+.hub-card { position: relative; }
+.hub-card-fav {
+  position: absolute; top: 8px; right: 8px;
+  width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none; color: var(--text-muted);
+}
+.hub-card-fav:active { background: var(--surface-hover); }
+.hub-card-fav.is-favorite { color: #F5A623; }
+.hub-card:has(.hub-card-fav) .hub-card-title { padding-right: 22px; }
 .hub-card-icon svg { width: 16px; height: 16px; color: #fff; }
 .hub-card-title { font-size: .92rem; font-weight: 700; letter-spacing: -.01em; }
 .hub-card-sub { font-size: .76rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }

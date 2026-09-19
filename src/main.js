@@ -28,6 +28,13 @@ const { listen }  = window.__TAURI__.event;
 let tools      = [];
 let activeTool = null;
 let isRunning  = false;
+// NUEVO (favoritos elegidos por el usuario -- antes "Favoritos" del Hub
+// era SOLO lo que tool.json marcaba "persistent": true, sin forma de que
+// el usuario sumara otra herramienta): ids (tool.id) guardados vía
+// favorites.rs, cargados una vez en init() y mantenidos en memoria acá --
+// se re-lee del disco solo si hiciera falta, cada toggle ya actualiza
+// este Set directo (favorites_set ya persistió el cambio en Rust).
+let favoriteIds = new Set();
 // Guard de secuencia para selectTool(): navegar rápido entre herramientas
 // puede disparar dos llamadas async en paralelo (cada una con sus propios
 // await a invoke()) -- sin esto, la que termina después puede pisar el
@@ -374,6 +381,9 @@ async function init() {
     } catch (e) { console.warn("No se pudo cargar themes.css:", e); }
 
     tools = await invoke("list_tools");
+    try {
+        favoriteIds = new Set(await invoke("favorites_list"));
+    } catch (e) { console.warn("No se pudo cargar favoritos:", e); }
     await Promise.all(tools.filter(t => t.has_ui).map(loadToolUi));
     await listen("tool-output", onToolOutput);
     await listen("tool-done", onToolDone);
@@ -519,7 +529,10 @@ function renderRowList(container, list, emptyMsg) {
 function buildWideCard(tool) {
     const r = getRenderer(tool.input);
     const summary = r?.getWidgetSummary ? r.getWidgetSummary() : null;
-    if (!summary) return buildCompactCard(tool);
+    // NUEVO: sin estrella de favorito acá -- una herramienta persistente ya
+    // está fija en "Favoritos" por diseño (tool.json), no por elección del
+    // usuario vía favorites_set.
+    if (!summary) return buildCompactCard(tool, { favoriteToggle: false });
 
     // NUEVO: <div role="button"> en vez de <button> -- un botón "action"
     // (ver más abajo) puede terminar adentro de esta tarjeta, y un
@@ -578,12 +591,40 @@ const COMPACT_QUICK_ACTIONS = {
     paletacolores: { label: "Cámara", intent: "camera" },
 };
 
-function buildCompactCard(tool) {
+// NUEVO (favoritos): botón chico de estrella en la esquina de una tarjeta
+// compacta -- togglea favorites_set y re-renderiza el Hub entero (la
+// tarjeta se puede mover de sección). Mismo motivo de stopPropagation()
+// que ya usan los botones de acción: no disparar también el onclick de
+// la tarjeta entera (abrir la tool).
+function buildFavoriteToggle(tool, isFavorite) {
+    const btn = el("button", {
+        className: "hub-card-fav" + (isFavorite ? " is-favorite" : ""),
+        type: "button",
+        title: isFavorite ? "Quitar de favoritos" : "Añadir a favoritos",
+    });
+    if (window.AlejoIcons) btn.appendChild(document.createRange().createContextualFragment(window.AlejoIcons.glyph(isFavorite ? "starFill" : "star", 15)));
+    btn.onclick = (e) => {
+        e.stopPropagation();
+        invoke("favorites_set", { id: tool.id, value: !isFavorite })
+            .then(() => {
+                if (isFavorite) favoriteIds.delete(tool.id); else favoriteIds.add(tool.id);
+                renderHub();
+            })
+            .catch(err => console.warn("No se pudo guardar el favorito:", err));
+    };
+    return btn;
+}
+
+function buildCompactCard(tool, opts = {}) {
     // NUEVO: mismo motivo que buildWideCard -- si hay un botón de acción
     // adentro, el contenedor no puede ser un <button> (HTML inválido
-    // anidar botones).
-    const hasAction = !!COMPACT_QUICK_ACTIONS[tool.input];
+    // anidar botones). El toggle de favorito es otro botón interno más,
+    // así que también fuerza el contenedor a <div role="button">.
+    const isFavorite = favoriteIds.has(tool.id);
+    const showFavToggle = opts.favoriteToggle !== false;
+    const hasAction = !!COMPACT_QUICK_ACTIONS[tool.input] || showFavToggle;
     const card = el(hasAction ? "div" : "button", hasAction ? { className: "hub-card", role: "button", tabIndex: 0 } : { className: "hub-card", type: "button" });
+    if (showFavToggle) card.appendChild(buildFavoriteToggle(tool, isFavorite));
     card.appendChild(badgeEl(tool, "compact"));
     card.appendChild(el("div", { className: "hub-card-title", textContent: tool.name }));
     const quick = COMPACT_QUICK_ACTIONS[tool.input];
@@ -609,16 +650,22 @@ function renderHub() {
         return;
     }
     const persistent = list.filter(t => t.persistent);
-    const rest = list.filter(t => !t.persistent);
+    // NUEVO (favoritos elegidos por el usuario): "Favoritos" ya no es solo
+    // lo "persistent" -- es la unión de eso + lo que el usuario marcó con
+    // la estrella. Filtrar "!t.persistent" acá evita duplicar una tool que
+    // por algún motivo estuviera en las dos listas.
+    const userFavorites = list.filter(t => !t.persistent && favoriteIds.has(t.id));
+    const favorites = [...persistent, ...userFavorites];
+    const rest = list.filter(t => !t.persistent && !favoriteIds.has(t.id));
 
-    if (persistent.length) {
+    if (favorites.length) {
         hubBento.appendChild(el("div", { className: "hub-section-lbl", textContent: "Favoritos" }));
         const wideGrid = el("div", { className: "hub-bento-grid" });
-        persistent.forEach(t => wideGrid.appendChild(buildWideCard(t)));
+        favorites.forEach(t => wideGrid.appendChild(t.persistent ? buildWideCard(t) : buildCompactCard(t)));
         hubBento.appendChild(wideGrid);
     }
     if (rest.length) {
-        hubBento.appendChild(el("div", { className: "hub-section-lbl", textContent: persistent.length ? "Todas las herramientas" : "Herramientas" }));
+        hubBento.appendChild(el("div", { className: "hub-section-lbl", textContent: favorites.length ? "Todas las herramientas" : "Herramientas" }));
         const grid = el("div", { className: "hub-bento-grid" });
         rest.forEach(t => grid.appendChild(buildCompactCard(t)));
         hubBento.appendChild(grid);

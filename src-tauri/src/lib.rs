@@ -34,6 +34,7 @@ mod collections;
 mod downloader;
 mod epub;
 mod expenses;
+mod favorites;
 mod folder_picker;
 mod installer;
 mod notes;
@@ -166,6 +167,9 @@ pub fn run() {
             get_tool_style,
             get_tool_ui,
             get_themes_css,
+            // Favoritos del Hub (además de las herramientas "persistent")
+            favorites::favorites_list,
+            favorites::favorites_set,
             // SyncManager (cliente de Syncthing-Android)
             syncthing::sync_get_config,
             syncthing::sync_set_config,

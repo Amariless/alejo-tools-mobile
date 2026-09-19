@@ -148,6 +148,12 @@ const GLYPHS = {
     // TOOL_GLYPH que lo use) y se reusa tal cual para Suite Creativa.
     pillarConnect: `<circle cx="7" cy="7.5" r="3.3" stroke="currentColor" stroke-width="1.8" fill="none"/><circle cx="17" cy="16.5" r="3.3" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M9.4 9.9l5.2 5.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
     pillarProduct: `<path d="M13.2 2.5 5 14h5.6l-1.3 7.5L18 10h-5.6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/>`,
+    // NUEVO (favoritos elegidos por el usuario, botón chico en cada
+    // tarjeta compacta del Hub): estrella vacía/llena según el estado --
+    // dos glifos separados en vez de un solo path con fill dinámico
+    // porque currentColor+fill:none no se puede "invertir" con CSS solo.
+    star: `<path d="M12 3.5l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-3-5.3 3 1.1-6-4.4-4.2 6-.8Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/>`,
+    starFill: `<path d="M12 3.5l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-3-5.3 3 1.1-6-4.4-4.2 6-.8Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="currentColor"/>`,
 };
 
 /** SVG completo (sin badge) de un glifo -- currentColor, para usar suelto
