@@ -223,7 +223,12 @@ pub struct DownloaderConfig {
 
 impl Default for DownloaderConfig {
     fn default() -> Self {
-        Self { folder: "/storage/emulated/0/Music/AlejoTools".to_string() }
+        // NUEVO (pedido del usuario -- no arrancar con una carpeta elegida
+        // sin que el usuario lo haya decidido): folder vacío = "todavía sin
+        // configurar", ver mismo criterio en textures.rs/pdf.rs. El
+        // frontend (DescargarMusica/ui.js) pide elegir carpeta antes de
+        // dejar usar la herramienta cuando ve este vacío.
+        Self { folder: String::new() }
     }
 }
 

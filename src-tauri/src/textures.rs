@@ -23,13 +23,14 @@ pub struct TexturesConfig {
 
 impl Default for TexturesConfig {
     fn default() -> Self {
-        // TODO(storage): path hardcodeado al volumen "primary" de Android
-        // como default -- no hay hoy ninguna función ya expuesta (JNI, ver
-        // storage.rs/installer.rs) que resuelva el directorio real de
-        // almacenamiento externo. Es el default que ya funcionaba antes de
-        // que la carpeta fuera configurable, así que instalaciones
-        // existentes no ven ningún cambio hasta que elijan otra a mano.
-        Self { folder: "/storage/emulated/0/Pictures/AlejoTools/Texturas".to_string() }
+        // NUEVO (pedido del usuario -- no arrancar con una carpeta elegida
+        // sin que el usuario lo haya decidido): folder vacío = "todavía sin
+        // configurar". El frontend (CreadorTexturas/ui.js) detecta el vacío
+        // y pide elegir carpeta antes de dejar usar la herramienta, en vez
+        // de guardar en silencio en un path hardcodeado que el usuario
+        // nunca eligió. Quien ya tenía una carpeta guardada no se ve
+        // afectado -- esto solo cambia qué pasa cuando nunca se guardó nada.
+        Self { folder: String::new() }
     }
 }
 

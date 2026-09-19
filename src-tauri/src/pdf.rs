@@ -24,10 +24,14 @@ pub struct PdfConfig {
 
 impl Default for PdfConfig {
     fn default() -> Self {
-        // Misma convención que SyncManager (suggestedPath en ui.js): en
-        // Android moderno de usuario único, /storage/emulated/0 es el
-        // storage compartido primario prácticamente siempre.
-        Self { folder: "/storage/emulated/0/Download".to_string() }
+        // NUEVO (pedido del usuario -- no arrancar con una carpeta elegida
+        // sin que el usuario lo haya decidido): folder vacío = "todavía sin
+        // configurar", ver mismo criterio en textures.rs/downloader.rs.
+        // Esta es también la carpeta compartida de Libros (ver epub.rs,
+        // book_get_config lee siempre de acá) -- el frontend (LectorDocs/
+        // ui.js) pide elegir carpeta antes de dejar usar cualquiera de las
+        // dos pestañas cuando ve este vacío.
+        Self { folder: String::new() }
     }
 }
 

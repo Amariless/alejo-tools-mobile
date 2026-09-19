@@ -993,13 +993,33 @@ registerRenderer("lectordocs", {
             renderSheetAndDialogs();
         }
 
-        (async () => {
-            await Promise.all([loadPdfList(), loadBooksList()]);
+        // NUEVO (pedido del usuario -- no arrancar con una carpeta elegida
+        // sin que el usuario lo haya decidido): pdf_get_config ya no trae
+        // un default hardcodeado (ver pdf.rs -- la misma carpeta la
+        // comparte Libros, ver epub.rs). Si folder viene vacío, se pide
+        // elegir carpeta ANTES de listar -- salvo que haya un "Abrir
+        // con..." pendiente (deep link), que abre un archivo puntual por
+        // URI y no depende en nada de la carpeta configurada.
+        function renderFolderGate() {
+            root.innerHTML = "";
+            const gate = el("div", { className: "ld-folder-gate" });
+            gate.appendChild(el("p", { className: "ld-folder-gate-txt", textContent: "Elegí dónde guardar tus PDF y libros." }));
+            const btn = el("button", { className: "primary", textContent: "Elegir carpeta" });
+            btn.onclick = async () => {
+                const path = await ctx.pickFolder("pdf");
+                if (!path) return;
+                await invoke("pdf_set_config", { folder: path });
+                await Promise.all([loadPdfList(), loadBooksList()]);
+            };
+            gate.appendChild(btn);
+            root.appendChild(gate);
+        }
 
+        (async () => {
             // "Abrir con..." desde otra app -- ver la nota grande de
             // checkDeepLink() más abajo. Si hay algo pendiente, se abre
-            // directo en el lector de PDF (bypass de la lista), igual que
-            // el Lector de PDF viejo.
+            // directo en el lector de PDF (bypass de la lista y de la
+            // carpeta configurada), igual que el Lector de PDF viejo.
             let pendingUri = pendingPdfUriFromDeepLink || "";
             pendingPdfUriFromDeepLink = null;
             if (!pendingUri) { try { pendingUri = await invoke("pdf_take_pending_uri"); } catch (e) { /* no-op */ } }
@@ -1007,7 +1027,13 @@ registerRenderer("lectordocs", {
                 const name = decodeURIComponent(pendingUri.split("/").pop() || "PDF");
                 S.tab = "pdf";
                 await openPdfReader({ path: pendingUri, name });
+                return;
             }
+
+            const cfg = await invoke("pdf_get_config").catch(() => ({ folder: "" }));
+            if (!cfg.folder) { renderFolderGate(); return; }
+
+            await Promise.all([loadPdfList(), loadBooksList()]);
         })();
     },
     onOutput() {},

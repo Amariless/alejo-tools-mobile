@@ -57,6 +57,31 @@ registerRenderer("creadortexturas", {
         const root = el("div", { className: "tx-root" });
         area.appendChild(root);
 
+        // NUEVO (pedido del usuario -- no arrancar con una carpeta elegida
+        // sin que el usuario lo haya decidido): textures_get_config ya no
+        // trae un default hardcodeado (ver textures.rs) -- si folder viene
+        // vacío, se pide elegir carpeta ANTES de montar el flujo normal.
+        // Misma key ("texturas") que ya usa Configuración.
+        invoke("textures_get_config").then(cfg => {
+            if (cfg.folder) initNormal(); else renderFolderGate();
+        });
+
+        function renderFolderGate() {
+            root.innerHTML = "";
+            const gate = el("div", { className: "tx-folder-gate" });
+            gate.appendChild(el("p", { className: "tx-folder-gate-txt", textContent: "Elegí dónde guardar las texturas que crees." }));
+            const btn = el("button", { className: "primary", textContent: "Elegir carpeta" });
+            btn.onclick = async () => {
+                const path = await ctx.pickFolder("texturas");
+                if (!path) return;
+                await invoke("textures_set_config", { folder: path });
+                initNormal();
+            };
+            gate.appendChild(btn);
+            root.appendChild(gate);
+        }
+
+        function initNormal() {
         const WORK_SIZE = 512; // lado más largo de trabajo -- balance velocidad/detalle
 
         const CATEGORIES = [
@@ -1053,6 +1078,7 @@ registerRenderer("creadortexturas", {
                 loadCapturedPhoto(res.path);
             }
         });
+        }
     },
     onOutput() {},
     onDone() {},

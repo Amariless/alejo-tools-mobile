@@ -6,6 +6,25 @@
   position: relative;
 }
 
+/* NUEVO (pedido del usuario -- pedir carpeta antes de dejar usar la
+   herramienta, en vez de un default hardcodeado sin elegir): pantalla
+   corta que reemplaza el flujo normal mientras pdf_get_config().folder
+   venga vacío (salvo que haya un "Abrir con..." pendiente). */
+.ld-folder-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin: 48px auto;
+  max-width: 320px;
+  text-align: center;
+  padding: 0 16px;
+}
+.ld-folder-gate-txt {
+  color: var(--text-muted);
+  font-size: .92rem;
+}
+
 /* ── Pestañas + lista ── */
 .ld-tabs { display: flex; gap: 6px; padding: 14px 16px 0; }
 .ld-tab {
