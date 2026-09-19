@@ -67,16 +67,17 @@ const GLYPHS = {
     bricks: `<rect x="3" y="4" width="8" height="5" stroke="currentColor" stroke-width="1.7" fill="none"/><rect x="11" y="4" width="10" height="5" stroke="currentColor" stroke-width="1.7" fill="none"/><rect x="3" y="9.5" width="6" height="5" stroke="currentColor" stroke-width="1.7" fill="none"/><rect x="9" y="9.5" width="8" height="5" stroke="currentColor" stroke-width="1.7" fill="none"/><rect x="17" y="9.5" width="4" height="5" stroke="currentColor" stroke-width="1.7" fill="none"/><rect x="3" y="15" width="9" height="5" stroke="currentColor" stroke-width="1.7" fill="none"/><rect x="12" y="15" width="9" height="5" stroke="currentColor" stroke-width="1.7" fill="none"/>`,
     clapper: `<rect x="3.5" y="10.5" width="17" height="9" rx="1.2" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M3.5 10.5 4.2 6.3a1 1 0 0 1 1.15-.82l14.1 2.35a1 1 0 0 1 .83 1.14l-.5 3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><path d="m7.3 6 2.2 4M12.7 6.9l2.2 4" stroke="currentColor" stroke-width="1.5"/>`,
     doc: `<path d="M6.5 2.5h8l4 4v14.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><path d="M14 2.5V7h4.3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><path d="M8.3 12h7.2M8.3 15.2h7.2M8.3 18.4h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`,
-    // NUEVO (pedido del usuario -- "el botón de config es un sol, no una
-    // tuerca"): la versión anterior era un círculo chico + 8 líneas finas
-    // radiales -- estructuralmente CASI IDÉNTICA a wxSun (círculo + 8 rayos
-    // radiales), solo con círculo más chico y rayos más cortos. A este
-    // tamaño (18-22px) esa diferencia no se nota y de verdad se lee como
-    // un sol, no un engranaje -- un engranaje necesita dientes RECTOS
-    // (rectángulos), no rayos finos, para distinguirse de un sunburst.
-    // Ahora es un anillo (el cuerpo/agujero del engranaje) con 8 dientes
-    // rectangulares alrededor, forma mucho más reconocible como "tuerca".
-    gear: `<circle cx="12" cy="12" r="4.6" stroke="currentColor" stroke-width="1.6" fill="none"/><g fill="currentColor"><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7"/><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7" transform="rotate(45 12 12)"/><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7" transform="rotate(90 12 12)"/><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7" transform="rotate(135 12 12)"/><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7" transform="rotate(180 12 12)"/><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7" transform="rotate(225 12 12)"/><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7" transform="rotate(270 12 12)"/><rect x="10.3" y="3.4" width="3.4" height="3.6" rx="0.7" transform="rotate(315 12 12)"/></g>`,
+    // NUEVO (pedido del usuario -- "el ícono de settings sigue pareciendo un
+    // sol, poné una tuerca de verdad"): el intento anterior (anillo +
+    // rectángulos redondeados) seguía leyéndose como rayos por el radio de
+    // esquina y por tocar apenas el borde del anillo. Este es el ícono
+    // "settings" real de Material Design (un solo path relleno, con
+    // dientes trapezoidales que SÍ se funden con el cuerpo del engranaje,
+    // sin huecos ni puntas redondeadas) -- forma inconfundible como tuerca
+    // a cualquier tamaño. fill-rule="evenodd" es necesario: el agujero
+    // circular del centro es un sub-path en sentido contrario dentro del
+    // mismo path, no una forma aparte.
+    gear: `<path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor" d="M19.14,12.94c0.04,-0.3 0.06,-0.61 0.06,-0.94c0,-0.32 -0.02,-0.64 -0.07,-0.94l2.03,-1.58c0.18,-0.14 0.23,-0.41 0.12,-0.61l-1.92,-3.32c-0.12,-0.22 -0.37,-0.29 -0.59,-0.22l-2.39,0.96c-0.5,-0.38 -1.03,-0.7 -1.62,-0.94L14.4,2.81c-0.04,-0.24 -0.24,-0.41 -0.48,-0.41h-3.84c-0.24,0 -0.43,0.17 -0.47,0.41L9.25,5.35C8.66,5.59 8.12,5.92 7.63,6.29L5.24,5.33c-0.22,-0.08 -0.47,0 -0.59,0.22L2.74,8.87C2.62,9.08 2.66,9.34 2.86,9.48l2.03,1.58C4.84,11.36 4.8,11.69 4.8,12s0.02,0.64 0.07,0.94l-2.03,1.58c-0.18,0.14 -0.23,0.41 -0.12,0.61l1.92,3.32c0.12,0.22 0.37,0.29 0.59,0.22l2.39,-0.96c0.5,0.38 1.03,0.7 1.62,0.94l0.36,2.54c0.05,0.24 0.24,0.41 0.48,0.41h3.84c0.24,0 0.44,-0.17 0.47,-0.41l0.36,-2.54c0.59,-0.24 1.13,-0.56 1.62,-0.94l2.39,0.96c0.22,0.08 0.47,0 0.59,-0.22l1.92,-3.32c0.12,-0.22 0.07,-0.47 -0.12,-0.61L19.14,12.94zM12,15.6c-1.98,0 -3.6,-1.62 -3.6,-3.6s1.62,-3.6 3.6,-3.6s3.6,1.62 3.6,3.6S13.98,15.6 12,15.6z"/>`,
     chevronLeft: `<path d="M14.5 5 8 12l6.5 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
     chevronRight: `<path d="M9.5 5 16 12l-6.5 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
     close: `<path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>`,

@@ -508,7 +508,18 @@ function buildListRow(tool) {
     const chev = el("span", { className: "list-row-chevron" });
     if (window.AlejoIcons) chev.appendChild(document.createRange().createContextualFragment(window.AlejoIcons.glyph("chevronRight", 18)));
     row.appendChild(chev);
-    row.onclick = () => selectTool(tool);
+    row.onclick = () => {
+        if (row._suppressClick) { row._suppressClick = false; return; }
+        selectTool(tool);
+    };
+    // NUEVO (pedido del usuario -- "sigo sin ver la forma de añadir una
+    // herramienta a favoritos... debería ser dejar hundido sobre la caja"):
+    // esta es la fila de LISTA (pestaña por pilar / resultados de
+    // búsqueda) -- a diferencia de las tarjetas compactas del Hub, acá no
+    // hay lugar para una estrella visible sin recargar el layout, así que
+    // el mecanismo de favoritos es el que pidió directamente: mantener
+    // presionado abre un menú chico con la opción de poner/sacar.
+    if (!tool.persistent) attachLongPress(row, (x, y) => openFavoriteMenu(tool, x, y));
     return row;
 }
 
@@ -591,6 +602,75 @@ const COMPACT_QUICK_ACTIONS = {
     paletacolores: { label: "Cámara", intent: "camera" },
 };
 
+// NUEVO (pedido del usuario -- "debería ser dejar hundido sobre la caja de
+// la herramienta... que salga la opción de ponerlo/sacarlo"): mantener
+// presionado (touch o mouse) ~480ms sin soltar ni arrastrar dispara
+// onLongPress(x, y). Se cancela si el puntero se levanta antes de tiempo o
+// se mueve más de 10px (evita que un scroll accidental lo dispare). Marca
+// node._suppressClick = true para que el propio handler de click del
+// elemento (row.onclick / card.onclick) ignore el click fantasma que el
+// navegador dispara al soltar tras el long-press.
+function attachLongPress(node, onLongPress) {
+    const THRESHOLD_MS = 480;
+    const MOVE_TOLERANCE = 10;
+    let timer = null;
+    let startX = 0, startY = 0;
+    const clear = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    node.addEventListener("pointerdown", (e) => {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        startX = e.clientX;
+        startY = e.clientY;
+        clear();
+        timer = setTimeout(() => {
+            timer = null;
+            node._suppressClick = true;
+            onLongPress(e.clientX, e.clientY);
+        }, THRESHOLD_MS);
+    });
+    node.addEventListener("pointerup", clear);
+    node.addEventListener("pointerleave", clear);
+    node.addEventListener("pointercancel", clear);
+    node.addEventListener("pointermove", (e) => {
+        if (!timer) return;
+        if (Math.abs(e.clientX - startX) > MOVE_TOLERANCE || Math.abs(e.clientY - startY) > MOVE_TOLERANCE) clear();
+    });
+}
+
+function closeFavoriteMenu() {
+    document.getElementById("fav-menu-backdrop")?.remove();
+}
+
+// NUEVO: menú chico de una sola opción ("Añadir"/"Quitar de favoritos"),
+// posicionado cerca de donde el usuario mantuvo presionado. Un backdrop
+// transparente a pantalla completa cierra el menú al tocar afuera.
+function openFavoriteMenu(tool, x, y) {
+    closeFavoriteMenu();
+    const isFavorite = favoriteIds.has(tool.id);
+    const backdrop = el("div", { id: "fav-menu-backdrop", className: "fav-menu-backdrop" });
+    backdrop.onclick = closeFavoriteMenu;
+    const menu = el("div", { className: "fav-menu" });
+    menu.style.left = `${Math.min(x, window.innerWidth - 220)}px`;
+    menu.style.top = `${Math.min(y, window.innerHeight - 56)}px`;
+    const btn = el("button", {
+        className: "fav-menu-item",
+        type: "button",
+        textContent: isFavorite ? "Quitar de favoritos" : "Añadir a favoritos",
+    });
+    btn.onclick = (e) => {
+        e.stopPropagation();
+        invoke("favorites_set", { id: tool.id, value: !isFavorite })
+            .then(() => {
+                if (isFavorite) favoriteIds.delete(tool.id); else favoriteIds.add(tool.id);
+                closeFavoriteMenu();
+                if (!hubView.classList.contains("hidden")) renderHub();
+            })
+            .catch(err => console.warn("No se pudo guardar el favorito:", err));
+    };
+    menu.appendChild(btn);
+    backdrop.appendChild(menu);
+    document.body.appendChild(backdrop);
+}
+
 // NUEVO (favoritos): botón chico de estrella en la esquina de una tarjeta
 // compacta -- togglea favorites_set y re-renderiza el Hub entero (la
 // tarjeta se puede mover de sección). Mismo motivo de stopPropagation()
@@ -637,8 +717,12 @@ function buildCompactCard(tool, opts = {}) {
         };
         card.appendChild(btn);
     }
-    card.onclick = () => selectTool(tool);
+    card.onclick = () => {
+        if (card._suppressClick) { card._suppressClick = false; return; }
+        selectTool(tool);
+    };
     if (hasAction) card.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectTool(tool); } };
+    if (!tool.persistent) attachLongPress(card, (x, y) => openFavoriteMenu(tool, x, y));
     return card;
 }
 

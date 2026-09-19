@@ -298,8 +298,20 @@ body {
    en el handler de cada botón (ver buildWideCard, main.js) ya evita que el
    toque también dispare el onclick de la tarjeta entera. */
 .hub-card-actions { display: flex; gap: 8px; flex-basis: 100%; }
+/* NUEVO (bug real reportado -- "los botones de acceso rápido cambian de
+   tamaño según el nombre de la herramienta"): flex:1 acá era correcto
+   SOLO dentro de .hub-card-actions (fila horizontal de las tarjetas
+   anchas) -- pero .hub-card-action también se usa suelto, como hijo
+   directo de una tarjeta COMPACTA (columna flex, ver COMPACT_QUICK_ACTIONS
+   en main.js). Ahí flex:1 crece en el eje PRINCIPAL (vertical) para
+   ocupar el espacio sobrante cuando el grid estira la tarjeta para
+   igualar la altura de su vecina (ej. un nombre de herramienta más largo
+   que envuelve a 2 líneas) -- eso es lo que estiraba el botón mismo, no
+   la tarjeta. flex-shrink:0 alcanza para el caso suelto sin tocar el
+   ancho (que sí debe llenar el ancho vía align-items:stretch heredado). */
+.hub-card-actions .hub-card-action { flex: 1; }
 .hub-card-action {
-  flex: 1;
+  flex-shrink: 0;
   padding: 8px 10px;
   border-radius: var(--radius-sm, 8px);
   border: 1px solid var(--border);
@@ -327,6 +339,30 @@ body {
 .hub-card-fav:active { background: var(--surface-hover); }
 .hub-card-fav.is-favorite { color: #F5A623; }
 .hub-card:has(.hub-card-fav) .hub-card-title { padding-right: 22px; }
+
+/* NUEVO (pedido del usuario -- menú de favoritos al mantener presionado,
+   ver attachLongPress/openFavoriteMenu en main.js): backdrop transparente
+   a pantalla completa (cierra el menú al tocar afuera) + un menú chico de
+   una sola opción posicionado cerca del toque. z-index alto -- tiene que
+   quedar por encima de cualquier vista (Hub, categoría, herramienta). */
+.fav-menu-backdrop { position: fixed; inset: 0; z-index: 500; }
+.fav-menu {
+  position: fixed;
+  min-width: 200px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(0,0,0,.2));
+  overflow: hidden;
+}
+.fav-menu-item {
+  display: block; width: 100%;
+  padding: 14px 16px;
+  border: none; background: none;
+  color: var(--text); font-size: .92rem; font-weight: 600;
+  text-align: left;
+}
+.fav-menu-item:active { background: var(--surface-hover); }
 .hub-card-icon svg { width: 16px; height: 16px; color: #fff; }
 .hub-card-title { font-size: .92rem; font-weight: 700; letter-spacing: -.01em; }
 .hub-card-sub { font-size: .76rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
