@@ -412,6 +412,59 @@ async fn jni_start_download(app: &AppHandle, url: &str, out_path: &str, quality:
     }
 }
 
+/// NUEVO (preview de ~20s antes de descargar la canción entera) -- mismo
+/// patrón que jni_start_download, llamando a startPreviewDownload en vez
+/// de startDownload (2 argumentos String en vez de 3: sin "quality", la
+/// preview siempre usa un bitrate fijo bajo, ver YtDlpBridge.kt).
+#[cfg(target_os = "android")]
+async fn jni_start_preview(app: &AppHandle, url: &str, out_path: &str) -> Result<String, String> {
+    use jni::objects::JValue;
+    use tauri::Manager;
+
+    let window = app.get_webview_window("main").ok_or("No se encontró la ventana principal")?;
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
+    let url = url.to_string();
+    let out_path = out_path.to_string();
+
+    window
+        .with_webview(move |webview| {
+            let handle = webview.jni_handle();
+            handle.exec(move |env, activity, _webview| {
+                let result = (|| -> Result<String, String> {
+                    let class = wry::prelude::find_class(env, activity, "com.alejo.toolsmobile.YtDlpBridge".to_string())
+                        .map_err(|e| format!("No se encontró YtDlpBridge: {e}"))?;
+                    let url_j = env.new_string(&url).map_err(|e| e.to_string())?;
+                    let path_j = env.new_string(&out_path).map_err(|e| e.to_string())?;
+                    let job_id_obj = env
+                        .call_static_method(
+                            class,
+                            "startPreviewDownload",
+                            "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+                            &[JValue::Object(activity), JValue::Object(&url_j), JValue::Object(&path_j)],
+                        )
+                        .and_then(|v| v.l())
+                        .map_err(|e| format!("No se pudo iniciar la preview: {e}"))?;
+                    if job_id_obj.is_null() {
+                        return Err("startPreviewDownload devolvió null".to_string());
+                    }
+                    let job_id: String = env
+                        .get_string(&job_id_obj.into())
+                        .map_err(|e| e.to_string())?
+                        .into();
+                    Ok(job_id)
+                })();
+                let _ = tx.send(result);
+            });
+        })
+        .map_err(|e| format!("No se pudo acceder al webview: {e}"))?;
+
+    match tokio::time::timeout(std::time::Duration::from_secs(20), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("No se obtuvo respuesta".to_string()),
+        Err(_) => Err("La preview tardó demasiado en iniciar".to_string()),
+    }
+}
+
 #[cfg(target_os = "android")]
 async fn jni_poll(app: &AppHandle, job_id: &str) -> Result<serde_json::Value, String> {
     use jni::objects::JValue;
@@ -475,6 +528,10 @@ async fn jni_start_download(_app: &AppHandle, _url: &str, _out_path: &str, _qual
     Err("Descargar Música solo está disponible en Android".to_string())
 }
 #[cfg(not(target_os = "android"))]
+async fn jni_start_preview(_app: &AppHandle, _url: &str, _out_path: &str) -> Result<String, String> {
+    Err("Descargar Música solo está disponible en Android".to_string())
+}
+#[cfg(not(target_os = "android"))]
 async fn jni_poll(_app: &AppHandle, _job_id: &str) -> Result<serde_json::Value, String> {
     Err("Descargar Música solo está disponible en Android".to_string())
 }
@@ -529,14 +586,41 @@ fn track_info_from_json(result: &serde_json::Value, fallback_url: &str) -> Track
     // perdía el dato, cayendo a 0) si el bridge serializa "duration" como
     // float (ej. 213.0) en vez de entero -- as_f64() cubre ambos casos.
     let duration_secs = result.get("duration").and_then(|v| v.as_f64()).map(|f| f as i64).unwrap_or(0);
-    let thumbnail = result.get("thumbnail").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
+    // NUEVO (pedido del usuario -- portada faltante en algunos resultados de
+    // búsqueda): "thumbnail" (string plano) no siempre viene en resultados
+    // de ytsearch/scsearch -- yt-dlp sí suele traer "thumbnails" (array,
+    // ordenado de peor a mejor calidad), así que se usa como fallback,
+    // tomando el último (mejor calidad).
+    let thumbnail = result.get("thumbnail").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string())
+        .or_else(|| {
+            result.get("thumbnails").and_then(|v| v.as_array())
+                .and_then(|arr| arr.last())
+                .and_then(|t| t.get("url")).and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty()).map(|s| s.to_string())
+        });
     let webpage_url = result.get("webpage_url").and_then(|v| v.as_str()).unwrap_or(fallback_url).to_string();
 
-    let mut artist_name = primary_artist(&uploader);
-    artist_name = CHANNEL_SUFFIX.replace(&artist_name, "").trim().to_string();
-    if let Some(caps) = TOPIC_CHANNEL.captures(&artist_name) {
-        artist_name = caps[1].trim().to_string();
-    }
+    // NUEVO (pedido del usuario -- artista poco preciso): antes se derivaba
+    // SIEMPRE del uploader (el canal, ej. "Sony Music Latin" en vez del
+    // artista real). yt-dlp expone "artist"/"creator" directo cuando
+    // YouTube Music tiene esos metadatos (uploads oficiales de música) --
+    // se prioriza eso, y solo se cae al heurístico basado en uploader
+    // cuando ninguno de los dos vino.
+    let explicit_artist = result.get("artist").and_then(|v| v.as_str())
+        .or_else(|| result.get("creator").and_then(|v| v.as_str()))
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let artist_name = match explicit_artist {
+        Some(a) => a,
+        None => {
+            let mut a = primary_artist(&uploader);
+            a = CHANNEL_SUFFIX.replace(&a, "").trim().to_string();
+            if let Some(caps) = TOPIC_CHANNEL.captures(&a) {
+                a = caps[1].trim().to_string();
+            }
+            a
+        }
+    };
 
     let bare_title = clean_title(&raw_title, "");
     let platform = detect_platform(&webpage_url);
@@ -767,4 +851,45 @@ pub async fn dl_download(app: AppHandle, url: String, title: String, artist: Str
         let _ = app.emit("dl-progress", serde_json::json!({ "progress": progress, "eta": eta }));
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
+}
+
+fn sha256_hex(s: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(s.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+/// NUEVO (pedido del usuario -- poder escuchar un fragmento antes de
+/// descargar la canción entera): baja SOLO los primeros ~20s a un
+/// archivo temporal en cache (ver YtDlpBridge.kt, startPreviewDownload)
+/// y devuelve su path para reproducir con
+/// <audio src={convertFileSrc(path)}>. El nombre de archivo es un hash
+/// de la URL -- pedir la misma preview de nuevo (el usuario vuelve a
+/// tocar la misma fila) reusa el archivo ya bajado en vez de generar
+/// otra copia.
+#[tauri::command]
+pub async fn dl_preview(app: AppHandle, url: String) -> Result<String, String> {
+    let url = url.trim().to_string();
+    if url.is_empty() {
+        return Err("Falta la URL.".to_string());
+    }
+
+    let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    let dir = cache_dir.join("dl_preview");
+    tokio::fs::create_dir_all(&dir).await.map_err(|e| format!("No se pudo crear la carpeta de cache: {e}"))?;
+    let out_path = dir.join(format!("{}.mp3", sha256_hex(&url)));
+    let out_path_str = out_path.to_string_lossy().to_string();
+
+    if tokio::fs::try_exists(&out_path).await.unwrap_or(false) {
+        return Ok(out_path_str);
+    }
+
+    let job_id = jni_start_preview(&app, &url, &out_path_str).await?;
+    let result = poll_until_done(&app, &job_id, 60).await?;
+    if result.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+        let err = result.get("error").and_then(|v| v.as_str()).unwrap_or("Error desconocido");
+        return Err(format!("No se pudo generar la preview: {err}"));
+    }
+    Ok(out_path_str)
 }

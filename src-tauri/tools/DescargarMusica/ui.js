@@ -73,6 +73,12 @@ registerRenderer("descargarmusica", {
             copiedPath: false,
             downloads: { loading: false, error: "", files: [] },
             playingPath: null,
+            // NUEVO (pedido del usuario -- preview de un resultado de
+            // búsqueda antes de descargarlo): url = trackUrl de la fila
+            // seleccionada, path = archivo local ya bajado (dl_preview),
+            // loading = true mientras se está generando. Un solo preview a
+            // la vez -- togglePreview() la reemplaza por completo.
+            preview: { url: null, path: null, loading: false },
             menu: null,         // { file } -- hoja de acciones abierta
             renameDialog: null, // { file }
         };
@@ -338,7 +344,35 @@ registerRenderer("descargarmusica", {
         // ══════════════════════════════════════════════════════════════
         //  PESTAÑA "BUSCAR"
         // ══════════════════════════════════════════════════════════════
+
+        // NUEVO (pedido del usuario -- escuchar antes de decidir
+        // descargar): togglea el preview de esta fila -- si ya era la que
+        // estaba sonando/cargando, la para; si no, arranca dl_preview
+        // (baja ~20s, cachea por URL del lado Rust) y reemplaza cualquier
+        // otro preview que estuviera activo.
+        function togglePreview(track) {
+            if (S.preview.url === track.trackUrl) {
+                S.preview = { url: null, path: null, loading: false };
+                renderView();
+                return;
+            }
+            S.preview = { url: track.trackUrl, path: null, loading: true };
+            renderView();
+            invoke("dl_preview", { url: track.trackUrl }).then(path => {
+                if (S.preview.url !== track.trackUrl) return; // cambió de fila mientras cargaba
+                S.preview.path = path;
+                S.preview.loading = false;
+                renderView();
+            }).catch(e => {
+                if (S.preview.url !== track.trackUrl) return;
+                S.preview = { url: null, path: null, loading: false };
+                renderView();
+                alert("No se pudo cargar la preview: " + e);
+            });
+        }
+
         function renderResultRow(track) {
+            const wrap = el("div", { className: "dl-item-wrap" });
             const row = el("div", { className: "dl-item", role: "button", tabIndex: 0 });
             row.onclick = () => pickResult(track);
             row.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pickResult(track); } };
@@ -353,7 +387,23 @@ registerRenderer("descargarmusica", {
             const subParts = [track.artist, track.platform, track.duration].filter(Boolean);
             main.appendChild(el("div", { className: "dl-item-sub", textContent: subParts.join(" · ") }));
             row.appendChild(main);
-            return row;
+
+            const isThis = S.preview.url === track.trackUrl;
+            const previewBtn = el("button", {
+                className: "dl-preview-btn", type: "button",
+                title: isThis && S.preview.path ? "Detener preview" : "Escuchar preview",
+                innerHTML: window.AlejoIcons.glyph(isThis && S.preview.loading ? "dots" : isThis && S.preview.path ? "pause" : "play", 16),
+            });
+            previewBtn.onclick = (e) => { e.stopPropagation(); togglePreview(track); };
+            row.appendChild(previewBtn);
+
+            wrap.appendChild(row);
+            if (isThis && S.preview.path) {
+                const audio = el("audio", { className: "dl-audio", controls: true, autoplay: true, src: window.__TAURI__.core.convertFileSrc(S.preview.path) });
+                audio.onended = () => { S.preview = { url: null, path: null, loading: false }; renderView(); };
+                wrap.appendChild(audio);
+            }
+            return wrap;
         }
 
         function renderBuscarTab() {
