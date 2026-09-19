@@ -199,6 +199,7 @@ pub fn run() {
             downloader::dl_search,
             downloader::dl_download,
             downloader::dl_preview,
+            downloader::dl_take_pending_share_text,
             downloader::dl_get_config,
             downloader::dl_set_config,
             downloader::dl_list_downloads,
